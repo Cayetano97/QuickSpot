@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Quickspot overlay permissions",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,19 @@
+{
+  "actions": [
+    {
+      "kind": "url",
+      "name": "Google",
+      "value": "Google.com"
+    },
+    {
+      "kind": "url",
+      "name": "Sadada",
+      "value": "Google.com"
+    },
+    {
+      "kind": "url",
+      "name": "Dd",
+      "value": "Google.com"
+    }
+  ]
+}

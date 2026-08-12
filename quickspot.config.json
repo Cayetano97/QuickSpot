@@ -1,0 +1,7 @@
+{
+  "actions": [
+    { "name": "QuickSpot", "kind": "url", "value": "https://github.com/Cayetano97/QuickSpot" },
+    { "name": "YouTube", "kind": "url", "value": "https://youtube.com" },
+    { "name": "Google", "kind": "url", "value": "https://google.com" }
+  ]
+}
