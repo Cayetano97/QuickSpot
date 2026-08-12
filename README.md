@@ -133,10 +133,18 @@ QuickSpot/
 
 ## Testing
 
-- **Frontend** — `npm test` (Vitest): filter semantics, selection
-  wrapping, Unicode backspace, and the open/close state machine.
-- **Backend** — `cargo test` (in `src-tauri/`): config parsing fallbacks
-  and per-platform execution plans.
+- **Frontend** — `npm test` (Vitest): filter semantics, selection wrapping,
+  Unicode backspace, the open/close state machine, and the full overlay UI
+  (rendering, live filtering, keyboard, settings panel, app picker) in
+  jsdom with the Tauri IPC mocked.
+- **Backend** — `cargo test` (in `src-tauri/`): config parsing fallbacks,
+  per-platform execution plans, app discovery, and the drag-clamp /
+  monitor-centering math.
+
+Both suites run on GitHub Actions for every push and pull request (see
+`.github/workflows/ci.yml`): the frontend on Linux, the backend on Linux
+and macOS (add Windows to the matrix in the workflow to cover the
+`cmd /c` shell branch).
 
 ## License
 

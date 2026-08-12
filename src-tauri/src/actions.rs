@@ -210,6 +210,44 @@ mod tests {
     }
 
     #[test]
+    fn data_tel_and_file_schemes_are_left_alone() {
+        for value in ["data:text/plain,hi", "tel:+34123456789", "file:///tmp/x"] {
+            let a = action(ActionKind::Url, value, None);
+            assert_eq!(plan(&a), Execution::UrlDefault(value.into()));
+        }
+    }
+
+    #[test]
+    fn ipv4_with_port_gets_http_prefix() {
+        let a = action(ActionKind::Url, "127.0.0.1:8080", None);
+        assert_eq!(
+            plan(&a),
+            Execution::UrlDefault("http://127.0.0.1:8080".into())
+        );
+    }
+
+    #[test]
+    fn a_non_numeric_port_is_not_a_port() {
+        let a = action(ActionKind::Url, "example.com:abc", None);
+        assert_eq!(
+            plan(&a),
+            Execution::UrlDefault("https://example.com:abc".into())
+        );
+    }
+
+    #[test]
+    fn a_trailing_colon_is_not_a_port() {
+        let a = action(ActionKind::Url, "localhost:", None);
+        assert_eq!(plan(&a), Execution::UrlDefault("https://localhost:".into()));
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_trimmed() {
+        let a = action(ActionKind::Url, "  google.com  ", None);
+        assert_eq!(plan(&a), Execution::UrlDefault("https://google.com".into()));
+    }
+
+    #[test]
     fn url_with_browser_launches_that_browser_with_the_url_as_only_arg() {
         let a = action(
             ActionKind::Url,

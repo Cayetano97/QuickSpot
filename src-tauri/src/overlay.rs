@@ -126,11 +126,31 @@ fn reposition_to_cursor_monitor(app: &AppHandle, win: &WebviewWindow) -> tauri::
     };
     let wa = monitor.work_area();
     let size = win.outer_size()?;
-    let w = size.width as f64;
-    let h = size.height as f64;
-    let x = (wa.position.x as f64 + (wa.size.width as f64 - w) / 2.0).max(wa.position.x as f64);
-    let y = (wa.position.y as f64 + (wa.size.height as f64 - h) / 2.0).max(wa.position.y as f64);
+    let (x, y) = center_in_area(
+        wa.position.x as f64,
+        wa.position.y as f64,
+        wa.size.width as f64,
+        wa.size.height as f64,
+        size.width as f64,
+        size.height as f64,
+    );
     win.set_position(PhysicalPosition::new(x, y))
+}
+
+/// Center a `win_w` x `win_h` window in a work area (pure math, tested).
+/// An oversized window aligns to the area's top-left instead of going off
+/// the top-left edge.
+fn center_in_area(
+    area_x: f64,
+    area_y: f64,
+    area_w: f64,
+    area_h: f64,
+    win_w: f64,
+    win_h: f64,
+) -> (f64, f64) {
+    let x = (area_x + (area_w - win_w) / 2.0).max(area_x);
+    let y = (area_y + (area_h - win_h) / 2.0).max(area_y);
+    (x, y)
 }
 
 /// Background thread: while the overlay is shown, watch for an OS-level
@@ -217,13 +237,79 @@ fn clamp_to_virtual_screen(
         .map(|m| m.position().y + m.size().height as i32)
         .max()?;
     let size = win.outer_size().ok()?;
-    let w = size.width as i32;
-    let h = size.height as i32;
-    let cx = pos.x.clamp(min_x, (max_x - w).max(min_x));
-    let cy = pos.y.clamp(min_y, (max_y - h).max(min_y));
+    let (cx, cy) = clamp_pos(
+        (min_x, min_y),
+        (max_x, max_y),
+        (pos.x, pos.y),
+        (size.width as i32, size.height as i32),
+    );
     if cx == pos.x && cy == pos.y {
         None
     } else {
         Some(PhysicalPosition::new(cx, cy))
+    }
+}
+
+/// Keep a `size` window whose top-left is at `pos` inside the union rect
+/// `min..max` of all monitors (pure math, tested). A window larger than
+/// the screen clamps to the rect's top-left corner.
+fn clamp_pos(
+    min: (i32, i32),
+    max: (i32, i32),
+    pos: (i32, i32),
+    size: (i32, i32),
+) -> (i32, i32) {
+    let cx = pos.0.clamp(min.0, (max.0 - size.0).max(min.0));
+    let cy = pos.1.clamp(min.1, (max.1 - size.1).max(min.1));
+    (cx, cy)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_keeps_a_fully_inside_window_unchanged() {
+        assert_eq!(clamp_pos((0, 0), (1920, 1080), (100, 200), (520, 580)), (100, 200));
+    }
+
+    #[test]
+    fn clamp_pulls_right_and_bottom_overflow_back_inside() {
+        assert_eq!(clamp_pos((0, 0), (1920, 1080), (1600, 700), (520, 580)), (1400, 500));
+    }
+
+    #[test]
+    fn clamp_pulls_negative_offsets_back_to_the_union_origin() {
+        // Secondary monitor to the left of the primary: origins go negative.
+        assert_eq!(clamp_pos((-1920, 0), (0, 1080), (-2000, 300), (520, 580)), (-1920, 300));
+    }
+
+    #[test]
+    fn clamp_a_window_larger_than_the_screen_to_the_top_left_corner() {
+        assert_eq!(clamp_pos((0, 0), (800, 600), (300, 200), (1000, 900)), (0, 0));
+    }
+
+    #[test]
+    fn center_places_the_window_in_the_middle_of_the_work_area() {
+        assert_eq!(
+            center_in_area(0.0, 0.0, 1920.0, 1080.0, 520.0, 580.0),
+            (700.0, 250.0)
+        );
+    }
+
+    #[test]
+    fn center_an_oversized_window_against_the_area_top_left() {
+        assert_eq!(
+            center_in_area(0.0, 0.0, 800.0, 600.0, 1000.0, 900.0),
+            (0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn center_on_a_secondary_monitor_uses_its_own_origin() {
+        assert_eq!(
+            center_in_area(1920.0, 0.0, 1280.0, 1024.0, 520.0, 580.0),
+            (2300.0, 222.0)
+        );
     }
 }

@@ -11,13 +11,14 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1"
+    "@tauri-apps/api": "2.11.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.4",
-    "typescript": "~5.9.3",
-    "vite": "^7.2.0",
-    "vitest": "^4.1.10"
+    "@tauri-apps/cli": "2.11.4",
+    "jsdom": "30.0.1",
+    "typescript": "5.9.3",
+    "vite": "7.2.0",
+    "vitest": "4.1.10"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

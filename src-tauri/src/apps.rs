@@ -69,7 +69,7 @@ mod platform {
             user.push("Applications");
             scan_dir(&user, 1, &mut out);
         }
-        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        out.sort_by_key(|a| a.name.to_lowercase());
         out.dedup_by(|a, b| a.value == b.value);
         out
     }
@@ -128,7 +128,7 @@ mod platform {
         for dir in base_dirs() {
             scan_dir(&dir, 1, &mut out);
         }
-        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        out.sort_by_key(|a| a.name.to_lowercase());
         out.dedup_by(|a, b| a.value == b.value);
         out
     }
@@ -196,7 +196,7 @@ mod platform {
             user.push(".local/share/applications");
             scan_desktop_dir(&user, &mut out);
         }
-        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        out.sort_by_key(|a| a.name.to_lowercase());
         out.dedup_by(|a, b| a.value == b.value);
         out
     }
