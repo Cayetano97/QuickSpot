@@ -54,3 +54,18 @@ export const MAX_QUERY_BYTES = 256;
 /** Theme: always the dark register. */
 export const ACCENT = "#e5e5e5";
 export const DISC_FILL = "#000000";
+
+/** Curated group colors, tuned for legibility on the dark disc: every entry
+ * passes `isReadableOnDark` (WCAG relative luminance >= 0.2). */
+export const GROUP_PALETTE: readonly string[] = [
+  "#5e9eff", // blue
+  "#64d2ff", // cyan
+  "#30d158", // green
+  "#ffd60a", // yellow
+  "#ff9f0a", // orange
+  "#ff7a59", // coral
+  "#ff453a", // red
+  "#ff375f", // pink
+  "#bf5af2", // purple
+  "#8a7cff", // violet
+];

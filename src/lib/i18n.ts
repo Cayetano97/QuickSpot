@@ -31,6 +31,17 @@ interface Dict {
   appSearchPlaceholder: string;
   noAppsFound: string;
   saveValidationError: string;
+  saveGroupsValidationError: string;
+  groupsLabel: string;
+  addGroup: string;
+  groupNamePlaceholder: string;
+  groupColorAria: string;
+  noGroup: string;
+  groupSelectAria: string;
+  deleteGroup: string;
+  customColorPlaceholder: string;
+  colorInvalid: string;
+  colorTooDark: string;
 }
 
 const en: Dict = {
@@ -63,6 +74,17 @@ const en: Dict = {
   appSearchPlaceholder: "Search installed apps\u2026",
   noAppsFound: "No apps found",
   saveValidationError: "Fill in a name and a value for every action",
+  saveGroupsValidationError: "Fill in a name and a color for every group",
+  groupsLabel: "Groups",
+  addGroup: "Add group",
+  groupNamePlaceholder: "Group name",
+  groupColorAria: "Color of {name}",
+  noGroup: "No group",
+  groupSelectAria: "Group",
+  deleteGroup: "Delete {name}",
+  customColorPlaceholder: "#rrggbb",
+  colorInvalid: "Enter a 6-digit hex color",
+  colorTooDark: "Too dark for the dark theme",
 };
 
 const es: Dict = {
@@ -95,6 +117,17 @@ const es: Dict = {
   appSearchPlaceholder: "Buscar apps instaladas\u2026",
   noAppsFound: "No se encontraron apps",
   saveValidationError: "Completa el nombre y el valor de cada acción",
+  saveGroupsValidationError: "Completa el nombre y el color de cada grupo",
+  groupsLabel: "Grupos",
+  addGroup: "Añadir grupo",
+  groupNamePlaceholder: "Nombre del grupo",
+  groupColorAria: "Color de {name}",
+  noGroup: "Sin grupo",
+  groupSelectAria: "Grupo",
+  deleteGroup: "Eliminar {name}",
+  customColorPlaceholder: "#rrggbb",
+  colorInvalid: "Introduce un color hex de 6 dígitos",
+  colorTooDark: "Demasiado oscuro para el tema oscuro",
 };
 
 export type DictKey = keyof typeof en;

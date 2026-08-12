@@ -52,10 +52,23 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            // Config lives in the working directory (v1; per-user config
-            // dir is future work, same as the original). Read + parse
-            // exactly once on the launch path; never delays first frame.
-            let config_path = std::env::current_dir()?.join("quickspot.config.json");
+            // Config lives in the per-user config directory (outside the
+            // repo, so a settings save never trips the dev server's
+            // rebuild watcher, and the bundle dir stays unwritable-safe).
+            // On first run the v1 working-directory file is migrated.
+            let config_dir = app.path().app_config_dir()?;
+            std::fs::create_dir_all(&config_dir)?;
+            let config_path = config_dir.join("quickspot.config.json");
+            if !config_path.exists() {
+                let legacy = std::env::current_dir()
+                    .unwrap_or_default()
+                    .join("quickspot.config.json");
+                if legacy.is_file() {
+                    let _ = std::fs::copy(&legacy, &config_path);
+                }
+            }
+            // Read + parse exactly once on the launch path; never delays
+            // first frame.
             let config = config::load_from(&config_path);
             app.manage(AppState {
                 config: Mutex::new(config),

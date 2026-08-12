@@ -167,6 +167,7 @@ mod tests {
             value: value.into(),
             browser: browser.map(str::to_string),
             hint: None,
+            group: None,
         }
     }
 

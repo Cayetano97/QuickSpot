@@ -8,6 +8,8 @@
   A Spotlight-style quick launcher for Windows, macOS, and Linux.
   <br />
   Press a global hotkey and a round overlay fades in with your actions orbiting a central hub.
+  <br />
+  <strong>⚠️ Status: work in progress — under construction.</strong>
 </p>
 
 <p align="center">
@@ -61,6 +63,10 @@ Inside the overlay:
   for `app`, can browse your installed applications.
 - **Unlimited actions** — add as many actions as you like from Settings;
   the overlay shows the first 8 matches for the current query.
+- **Grouped, colored actions** — create small groups of actions in Settings,
+  give each group a color, and the group's chips pick up the color as an
+  accent (border, icon and fill). A curated palette tuned for the dark disc
+  plus a validated custom hex keep every color readable.
 - **Live filtering** — case-insensitive substring, config order preserved.
 - **English & Spanish UI** — follows the system language by default; override
   it from Settings (gear button), persisted in the config file.
@@ -87,18 +93,25 @@ npm run tauri dev
 
 ## Configuration
 
-QuickSpot reads `quickspot.config.json` from the working directory. If the
-file is missing or malformed, it falls back to built-in defaults. There is
-no limit on the number of actions; the overlay shows the first 8 matches
+QuickSpot reads `quickspot.config.json` from the per-user config directory
+(`~/Library/Application Support/dev.quickspot.app` on macOS,
+`%APPDATA%\dev.quickspot.app` on Windows,
+`$XDG_CONFIG_HOME/dev.quickspot.app` on Linux). On first run, a legacy
+`quickspot.config.json` next to the binary is migrated automatically. If
+the file is missing or malformed, it falls back to built-in defaults. There
+is no limit on the number of actions; the overlay shows the first 8 matches
 of the current query. Items missing `name`, `kind`, or `value` (or with an
 unknown `kind`) are skipped.
 
 ```json
 {
+  "groups": [
+    { "id": "work", "name": "Work", "color": "#5e9eff" }
+  ],
   "actions": [
     { "name": "QuickSpot", "kind": "url", "value": "https://github.com/Cayetano97/QuickSpot" },
     { "name": "YouTube", "kind": "url", "value": "https://youtube.com" },
-    { "name": "Google", "kind": "url", "value": "https://google.com" }
+    { "name": "Slack", "kind": "url", "value": "https://slack.com", "group": "work" }
   ]
 }
 ```
@@ -109,7 +122,9 @@ unknown `kind`) are skipped.
 | `kind` | `"url"`, `"command"`, or `"app"` |
 | `value` | URL, shell command, or app path / bundle id |
 | `browser` | Optional: custom browser executable for URLs |
-| `hint` | Optional: reserved for future grouping; ignored in v1 |
+| `hint` | Optional: reserved for future use; ignored in v1 |
+| `group` | Optional: id of the group this action belongs to |
+| `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The settings panel manages groups and colors (curated palette plus a validated custom hex) |
 | `language` | Optional, top-level: `"system"`, `"en"`, or `"es"`. Missing = OS language; if the OS language isn't Spanish, English is used |
 
 ## Project layout
@@ -128,7 +143,8 @@ QuickSpot/
       actions.rs            # action execution
       apps.rs               # installed-app discovery (app picker)
       commands.rs           # IPC commands
-  quickspot.config.json     # user-editable config
+  quickspot.config.json     # legacy/dev template; the app's config lives
+                            # in the per-user config dir (see Configuration)
 ```
 
 ## Testing

@@ -25,6 +25,26 @@ pub struct Action {
     pub browser: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    /// Id of the group this action belongs to, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Group {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+}
+
+/// Accepts `#rrggbb` (6 hex digits); anything else is treated as absent,
+/// so a malformed hand-edit can never break the UI.
+fn valid_color(value: &str) -> bool {
+    let b = value.as_bytes();
+    b.len() == 7
+        && b[0] == b'#'
+        && b[1..].iter().all(|c| c.is_ascii_hexdigit())
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -33,12 +53,14 @@ pub enum ConfigError {
     Malformed,
 }
 
-/// The parsed config: the action list, an optional language override
-/// (`"system"` | `"en"` | `"es"`; `None` = follow the OS language), and the
-/// dock hover magnification flag (defaults to on).
+/// The parsed config: the action list, the optional group definitions (a
+/// group is just a named color bucket actions can reference), an optional
+/// language override (`"system"` | `"en"` | `"es"`; `None` = follow the OS
+/// language), and the dock hover magnification flag (defaults to on).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Config {
     pub actions: Vec<Action>,
+    pub groups: Vec<Group>,
     pub language: Option<String>,
     pub magnify: bool,
 }
@@ -47,6 +69,7 @@ impl Config {
     pub fn with_defaults() -> Self {
         Config {
             actions: defaults(),
+            groups: Vec::new(),
             language: None,
             magnify: true,
         }
@@ -67,6 +90,7 @@ pub fn defaults() -> Vec<Action> {
             value: "https://github.com/Cayetano97/QuickSpot".into(),
             browser: None,
             hint: None,
+            group: None,
         },
         Action {
             name: "YouTube".into(),
@@ -74,6 +98,7 @@ pub fn defaults() -> Vec<Action> {
             value: "https://youtube.com".into(),
             browser: None,
             hint: None,
+            group: None,
         },
         Action {
             name: "Google".into(),
@@ -81,13 +106,15 @@ pub fn defaults() -> Vec<Action> {
             value: "https://google.com".into(),
             browser: None,
             hint: None,
+            group: None,
         },
     ]
 }
 
 /// Parse config text. Errors (parse failure or no `actions` array) return
 /// `Err`; the caller falls back to defaults. Items missing
-/// `name`/`kind`/`value` or with an unknown `kind` are skipped.
+/// `name`/`kind`/`value` or with an unknown `kind` are skipped; groups with
+/// a missing/blank id, name, or an invalid color are skipped too.
 pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
     let root: serde_json::Value =
         serde_json::from_str(text).map_err(|_| ConfigError::Parse)?;
@@ -121,7 +148,33 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
             value: value.to_string(),
             browser: obj.get("browser").and_then(|v| v.as_str()).map(str::to_string),
             hint: obj.get("hint").and_then(|v| v.as_str()).map(str::to_string),
+            group: obj.get("group").and_then(|v| v.as_str()).map(str::to_string),
         });
+    }
+    let mut groups = Vec::new();
+    if let Some(list) = root.get("groups").and_then(|a| a.as_array()) {
+        for item in list {
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
+            let (Some(id), Some(name), Some(color)) = (
+                obj.get("id").and_then(|v| v.as_str()),
+                obj.get("name").and_then(|v| v.as_str()),
+                obj.get("color").and_then(|v| v.as_str()),
+            ) else {
+                continue;
+            };
+            let id = id.trim();
+            let name = name.trim();
+            if id.is_empty() || name.is_empty() || !valid_color(color.trim()) {
+                continue;
+            }
+            groups.push(Group {
+                id: id.to_string(),
+                name: name.to_string(),
+                color: color.trim().to_string(),
+            });
+        }
     }
     let language = match root.get("language").and_then(|v| v.as_str()) {
         Some(l) if valid_language(l) => Some(l.to_string()),
@@ -130,6 +183,7 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
     let magnify = root.get("magnify").and_then(|v| v.as_bool()).unwrap_or(true);
     Ok(Config {
         actions: out,
+        groups,
         language,
         magnify,
     })
@@ -144,7 +198,7 @@ pub fn load_from(path: &Path) -> Config {
 }
 
 /// Lenient validation mirroring `parse_config`: empty names/values are
-/// dropped. `browser`/`hint` are kept as-is when present.
+/// dropped. `browser`/`hint`/`group` are kept as-is when present.
 pub fn sanitize(actions: Vec<Action>) -> Vec<Action> {
     let mut out = Vec::with_capacity(actions.len());
     for mut a in actions {
@@ -153,16 +207,43 @@ pub fn sanitize(actions: Vec<Action>) -> Vec<Action> {
         if a.name.is_empty() || a.value.is_empty() {
             continue;
         }
+        match &a.group {
+            Some(g) if g.trim().is_empty() => a.group = None,
+            _ => {}
+        }
         out.push(a);
     }
     out
 }
 
+/// Drop groups with a blank id/name or a non-`#rrggbb` color.
+pub fn sanitize_groups(groups: Vec<Group>) -> Vec<Group> {
+    groups
+        .into_iter()
+        .filter(|g| {
+            let id = g.id.trim();
+            let name = g.name.trim();
+            !id.is_empty() && !name.is_empty() && valid_color(g.color.trim())
+        })
+        .map(|mut g| {
+            g.id = g.id.trim().to_string();
+            g.name = g.name.trim().to_string();
+            g.color = g.color.trim().to_string();
+            g
+        })
+        .collect()
+}
+
 /// Write the config back to `path` as pretty JSON (camelCase, optional
 /// fields omitted). `language: None` (system default) omits the field; so
-/// does `magnify: true`, since on is the default.
+/// does `magnify: true`, since on is the default; an empty group list is
+/// omitted too.
 pub fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     let mut root = serde_json::json!({ "actions": sanitize(config.actions.clone()) });
+    if !config.groups.is_empty() {
+        root["groups"] = serde_json::to_value(sanitize_groups(config.groups.clone()))
+            .map_err(|e| e.to_string())?;
+    }
     if let Some(lang) = &config.language {
         root["language"] = serde_json::Value::String(lang.clone());
     }
@@ -314,6 +395,7 @@ mod tests {
         path.push(format!("quickspot-save-magnify-{}.json", std::process::id()));
         let config = Config {
             actions: vec![action("Vercel", "https://vercel.com")],
+            groups: Vec::new(),
             language: None,
             magnify: false,
         };
@@ -331,6 +413,7 @@ mod tests {
             value: value.into(),
             browser: None,
             hint: None,
+            group: None,
         }
     }
 
@@ -361,6 +444,7 @@ mod tests {
                 action("Vercel", "https://vercel.com"),
                 action("GitHub", "https://github.com"),
             ],
+            groups: Vec::new(),
             language: Some("es".into()),
             magnify: false,
         };
@@ -375,12 +459,121 @@ mod tests {
         path.push(format!("quickspot-save-lang-{}.json", std::process::id()));
         let config = Config {
             actions: vec![action("Vercel", "https://vercel.com")],
+            groups: Vec::new(),
             language: None,
             magnify: true,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("language"));
+        assert_eq!(load_from(&path), config);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn group(id: &str, name: &str, color: &str) -> Group {
+        Group {
+            id: id.into(),
+            name: name.into(),
+            color: color.into(),
+        }
+    }
+
+    #[test]
+    fn groups_are_parsed_with_their_actions() {
+        let text = r##"{
+            "groups": [
+                { "id": "work", "name": "Work", "color": "#5e9eff" },
+                { "id": "social", "name": "Social", "color": "#ff9f0a" }
+            ],
+            "actions": [
+                { "name": "Slack", "kind": "url", "value": "https://slack.com", "group": "work" },
+                { "name": "Google", "kind": "url", "value": "https://google.com" }
+            ]
+        }"##;
+        let config = parse_config(text).unwrap();
+        assert_eq!(
+            config.groups,
+            vec![group("work", "Work", "#5e9eff"), group("social", "Social", "#ff9f0a")]
+        );
+        assert_eq!(config.actions[0].group.as_deref(), Some("work"));
+        assert_eq!(config.actions[1].group, None);
+    }
+
+    #[test]
+    fn missing_groups_array_defaults_to_empty() {
+        let config = parse_config(r#"{"actions":[]}"#).unwrap();
+        assert!(config.groups.is_empty());
+    }
+
+    #[test]
+    fn groups_with_missing_fields_or_bad_colors_are_skipped() {
+        let text = r##"{
+            "groups": [
+                { "id": "ok", "name": "Ok", "color": "#5e9eff" },
+                { "id": "", "name": "No id", "color": "#5e9eff" },
+                { "id": "noname", "color": "#5e9eff" },
+                { "id": "badcolor", "name": "Bad color", "color": "5e9eff" },
+                { "id": "short", "name": "Short", "color": "#5e9e" },
+                { "id": "upper", "name": "Upper", "color": "#5E9EFF" },
+                42
+            ],
+            "actions": []
+        }"##;
+        let config = parse_config(text).unwrap();
+        assert_eq!(
+            config.groups,
+            vec![group("ok", "Ok", "#5e9eff"), group("upper", "Upper", "#5E9EFF")]
+        );
+    }
+
+    #[test]
+    fn action_group_referencing_an_unknown_id_is_kept_lenient() {
+        let config = parse_config(
+            r#"{"actions":[{"name":"Ghost","kind":"url","value":"https://x.dev","group":"nope"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(config.actions[0].group.as_deref(), Some("nope"));
+        assert!(config.groups.is_empty());
+    }
+
+    #[test]
+    fn sanitize_groups_trims_and_drops_invalid_entries() {
+        let cleaned = sanitize_groups(vec![
+            group("  work  ", "  Work  ", " #5e9eff "),
+            group("", "Blank id", "#5e9eff"),
+            group("noname", "   ", "#5e9eff"),
+            group("badcolor", "Bad color", "red"),
+            group("good", "Good", "#30d158"),
+        ]);
+        assert_eq!(cleaned.len(), 2);
+        assert_eq!(cleaned[0], group("work", "Work", "#5e9eff"));
+        assert_eq!(cleaned[1], group("good", "Good", "#30d158"));
+    }
+
+    #[test]
+    fn save_to_writes_groups_only_when_present() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("quickspot-save-groups-{}.json", std::process::id()));
+        let config = Config {
+            actions: vec![
+                action("Slack", "https://slack.com"),
+                Action {
+                    name: "GitHub".into(),
+                    kind: ActionKind::Url,
+                    value: "https://github.com".into(),
+                    browser: None,
+                    hint: None,
+                    group: Some("work".into()),
+                },
+            ],
+            groups: vec![group("work", "Work", "#5e9eff")],
+            language: None,
+            magnify: true,
+        };
+        save_to(&path, &config).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"groups\""));
+        assert!(text.contains("\"group\": \"work\""));
         assert_eq!(load_from(&path), config);
         let _ = std::fs::remove_file(&path);
     }

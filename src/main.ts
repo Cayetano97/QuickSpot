@@ -4,6 +4,7 @@ import {
   CENTER_X,
   CHIP_H,
   CHIP_W,
+  GROUP_PALETTE,
   GRIP_H,
   GRIP_W,
   GRIP_Y,
@@ -28,7 +29,16 @@ import {
   type Language,
   type StoredLanguage,
 } from "./lib/i18n";
-import { capUtf8Bytes, filterActions, moveSelection, type Action } from "./lib/model";
+import {
+  capUtf8Bytes,
+  filterActions,
+  isHexColor,
+  isReadableOnDark,
+  moveSelection,
+  uniqueGroupId,
+  type Action,
+  type Group,
+} from "./lib/model";
 import { OverlayState } from "./lib/state";
 
 const overlay = new OverlayState(undefined, () =>
@@ -36,6 +46,7 @@ const overlay = new OverlayState(undefined, () =>
 );
 
 let actions: Action[] = [];
+let groups: Group[] = [];
 let filtered: number[] = [];
 let selected = 0;
 /** Who owns the selection highlight: the cursor (hover) or the keyboard.
@@ -168,12 +179,19 @@ function localizeAll(): void {
   for (const row of settingsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     localizeSettingsRow(row);
   }
+  localizeGroupsEditor();
 }
 
 function refilter(): void {
   filtered = filterActions(actions, queryText);
   selected = filtered.length > 0 ? 0 : -1;
   syncChips();
+}
+
+/** The group of an action by config id, or undefined when unset/unknown. */
+function actionGroup(action: Action): Group | undefined {
+  if (!action.group) return undefined;
+  return groups.find((g) => g.id === action.group);
 }
 
 function syncChips(): void {
@@ -192,6 +210,14 @@ function syncChips(): void {
     const action = actions[idx];
     chipLabels[i].textContent = action.name;
     chipIcons[i].innerHTML = KIND_ICONS[action.kind];
+    const group = actionGroup(action);
+    if (group) {
+      el.dataset.group = group.id;
+      el.style.setProperty("--group-color", group.color);
+    } else {
+      delete el.dataset.group;
+      el.style.removeProperty("--group-color");
+    }
     el.style.opacity = "1";
     el.classList.toggle("selected", i === selected);
     el.setAttribute("aria-label", action.name);
@@ -379,7 +405,9 @@ settingsDone.addEventListener("click", () => closeSettings());
 settingsRows.addEventListener("click", (e) => {
   const target = e.target as HTMLElement;
   if (target.closest(".app-picker") || target.closest(".s-app-browse")) return;
+  if (target.closest(".g-picker") || target.closest(".g-swatch")) return;
   closeAppPickers();
+  closeGroupPickers();
 });
 
 settingsAdd.addEventListener("click", () => {
@@ -516,6 +544,7 @@ function closeSettings(): void {
   if (!settingsOpen) return;
   settingsOpen = false;
   closeAppPickers();
+  closeGroupPickers();
   langDraft = null;
   applyLanguage();
   settingsPanel.classList.remove("open");
@@ -527,6 +556,7 @@ function closeSettings(): void {
 
 function rebuildSettingsRows(): void {
   settingsRows.textContent = "";
+  rebuildGroupsEditor();
   for (const a of actions) settingsRows.appendChild(buildSettingsRow(a));
   settingsAdd.hidden = false;
 }
@@ -646,6 +676,248 @@ function attachAppPicker(row: HTMLElement, value: HTMLInputElement, name: HTMLIn
   row.appendChild(picker);
 }
 
+// ----------------------------------------------------------- groups editor
+
+function groupRows(): HTMLElement[] {
+  return [...settingsRows.querySelectorAll<HTMLElement>(".group-row")];
+}
+
+function closeGroupPickers(except?: HTMLElement): void {
+  for (const picker of settingsRows.querySelectorAll<HTMLElement>(".g-picker")) {
+    if (picker === except || picker.hidden) continue;
+    picker.hidden = true;
+    picker.parentElement
+      ?.querySelector<HTMLButtonElement>(".g-swatch")
+      ?.setAttribute("aria-expanded", "false");
+  }
+}
+
+/** Live validation message for the group color ("" = valid). */
+function groupRowError(row: HTMLElement): string {
+  const v = row.querySelector<HTMLInputElement>(".g-hex")!.value.trim();
+  if (!isHexColor(v)) return t(currentLanguage, "colorInvalid");
+  if (!isReadableOnDark(v)) return t(currentLanguage, "colorTooDark");
+  return "";
+}
+
+/** Paint the swatch and refresh the inline color error. */
+function refreshGroupRow(row: HTMLElement): void {
+  const hex = row.querySelector<HTMLInputElement>(".g-hex")!;
+  const error = row.querySelector<HTMLElement>(".g-error")!;
+  const fill = row.querySelector<HTMLElement>(".g-swatch-fill")!;
+  error.textContent = groupRowError(row);
+  if (isHexColor(hex.value.trim())) fill.style.background = hex.value.trim();
+}
+
+function localizeGroupRow(row: HTMLElement): void {
+  const L = currentLanguage;
+  const name = row.querySelector<HTMLInputElement>(".g-name")!;
+  const hex = row.querySelector<HTMLInputElement>(".g-hex")!;
+  const swatch = row.querySelector<HTMLButtonElement>(".g-swatch")!;
+  const del = row.querySelector<HTMLButtonElement>(".g-del")!;
+  const label = name.value.trim() || t(L, "groupNamePlaceholder");
+  name.placeholder = t(L, "groupNamePlaceholder");
+  name.setAttribute("aria-label", t(L, "groupNamePlaceholder"));
+  swatch.setAttribute("aria-label", t(L, "groupColorAria", { name: label }));
+  del.setAttribute("aria-label", t(L, "deleteGroup", { name: label }));
+  hex.placeholder = t(L, "customColorPlaceholder");
+  hex.setAttribute("aria-label", t(L, "customColorPlaceholder"));
+}
+
+function buildGroupRow(id: string, name: string, color: string, autoId = false): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "group-row";
+  row.dataset.id = id;
+  if (autoId) row.dataset.auto = "1";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.className = "g-name";
+  nameInput.value = name;
+
+  const swatch = document.createElement("button");
+  swatch.type = "button";
+  swatch.className = "g-swatch";
+  swatch.setAttribute("aria-haspopup", "true");
+  swatch.setAttribute("aria-expanded", "false");
+  const fill = document.createElement("span");
+  fill.className = "g-swatch-fill";
+  swatch.appendChild(fill);
+
+  const picker = document.createElement("div");
+  picker.className = "g-picker";
+  picker.hidden = true;
+
+  const grid = document.createElement("div");
+  grid.className = "gp-grid";
+  for (const c of GROUP_PALETTE) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "gp-item";
+    item.dataset.color = c;
+    item.setAttribute("aria-label", c);
+    item.style.background = c;
+    grid.appendChild(item);
+  }
+
+  const custom = document.createElement("div");
+  custom.className = "gp-custom";
+  const hex = document.createElement("input");
+  hex.type = "text";
+  hex.className = "g-hex";
+  hex.value = color;
+  const error = document.createElement("span");
+  error.className = "g-error";
+  error.setAttribute("role", "alert");
+  custom.append(hex, error);
+
+  picker.append(grid, custom);
+
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "g-del";
+  del.textContent = "\u2715";
+
+  row.append(nameInput, swatch, picker, del);
+  localizeGroupRow(row);
+  refreshGroupRow(row);
+
+  nameInput.addEventListener("input", () => {
+    row.classList.remove("invalid");
+    localizeGroupRow(row);
+    if (row.dataset.auto === "1") {
+      // First real name: derive the id from it (stable afterwards, so
+      // actions already assigned keep their reference).
+      const oldId = row.dataset.id ?? "";
+      const others = groupRows()
+        .filter((r) => r !== row)
+        .map((r) => ({ id: r.dataset.id ?? "", name: "", color: "" }));
+      row.dataset.id = uniqueGroupId(others, nameInput.value.trim());
+      delete row.dataset.auto;
+      for (const sel of settingsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
+        const opt = [...sel.options].find((o) => o.value === oldId);
+        if (opt) opt.value = row.dataset.id ?? "";
+      }
+    }
+    for (const sel of settingsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
+      const opt = [...sel.options].find((o) => o.value === row.dataset.id);
+      if (opt) opt.textContent = nameInput.value.trim();
+    }
+  });
+
+  swatch.addEventListener("click", () => {
+    if (picker.hidden) {
+      closeGroupPickers(picker);
+      picker.hidden = false;
+      swatch.setAttribute("aria-expanded", "true");
+    } else {
+      picker.hidden = true;
+      swatch.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  grid.addEventListener("click", (e) => {
+    const item = (e.target as HTMLElement).closest<HTMLElement>(".gp-item");
+    if (!item) return;
+    hex.value = item.dataset.color ?? "";
+    refreshGroupRow(row);
+    picker.hidden = true;
+    swatch.setAttribute("aria-expanded", "false");
+    swatch.focus();
+  });
+
+  hex.addEventListener("input", () => {
+    row.classList.remove("invalid");
+    refreshGroupRow(row);
+  });
+
+  del.addEventListener("click", () => {
+    closeGroupPickers();
+    const id = row.dataset.id;
+    row.remove();
+    for (const sel of settingsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
+      const opt = [...sel.options].find((o) => o.value === id);
+      if (opt) opt.remove();
+    }
+  });
+
+  return row;
+}
+
+/** Current groups as typed in the editor (valid entries only). */
+function collectGroupsFromRows(): Group[] {
+  const out: Group[] = [];
+  for (const row of groupRows()) {
+    const id = row.dataset.id ?? "";
+    const name = row.querySelector<HTMLInputElement>(".g-name")!.value.trim();
+    const color = row.querySelector<HTMLInputElement>(".g-hex")!.value.trim();
+    if (id && name && isHexColor(color) && isReadableOnDark(color)) {
+      out.push({ id, name, color });
+    }
+  }
+  return out;
+}
+
+/** Rebuild the option list of an action row's group select. */
+function rebuildGroupOptions(sel: HTMLSelectElement): void {
+  const prev = sel.value;
+  sel.textContent = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = t(currentLanguage, "noGroup");
+  sel.appendChild(none);
+  for (const row of groupRows()) {
+    const opt = document.createElement("option");
+    opt.value = row.dataset.id ?? "";
+    opt.textContent = row.querySelector<HTMLInputElement>(".g-name")!.value.trim();
+    sel.appendChild(opt);
+  }
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+}
+
+/** The groups block at the top of the settings list (scrolls with actions). */
+function rebuildGroupsEditor(): void {
+  const block = document.createElement("div");
+  block.className = "settings-groups";
+
+  const header = document.createElement("div");
+  header.className = "settings-groups-header";
+  const title = document.createElement("span");
+  title.className = "settings-groups-title";
+  title.textContent = t(currentLanguage, "groupsLabel");
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "g-add";
+  add.textContent = t(currentLanguage, "addGroup");
+  header.append(title, add);
+
+  const list = document.createElement("div");
+  list.className = "settings-groups-list";
+  for (const g of groups) list.appendChild(buildGroupRow(g.id, g.name, g.color));
+
+  block.append(header, list);
+  settingsRows.prepend(block);
+
+  add.addEventListener("click", () => {
+    const id = uniqueGroupId(collectGroupsFromRows(), "");
+    const row = buildGroupRow(id, "", GROUP_PALETTE[0], true);
+    list.appendChild(row);
+    for (const sel of settingsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
+      rebuildGroupOptions(sel);
+    }
+    row.querySelector<HTMLInputElement>(".g-name")?.focus();
+  });
+}
+
+function localizeGroupsEditor(): void {
+  const L = currentLanguage;
+  const title = settingsRows.querySelector<HTMLElement>(".settings-groups-title");
+  const add = settingsRows.querySelector<HTMLButtonElement>(".g-add");
+  if (title) title.textContent = t(L, "groupsLabel");
+  if (add) add.textContent = t(L, "addGroup");
+  for (const row of groupRows()) localizeGroupRow(row);
+}
+
 function buildSettingsRow(a: Action): HTMLElement {
   const L = currentLanguage;
   const row = document.createElement("div");
@@ -691,6 +963,12 @@ function buildSettingsRow(a: Action): HTMLElement {
   const valueWrap = document.createElement("div");
   valueWrap.className = "s-value-row";
 
+  const groupSel = document.createElement("select");
+  groupSel.className = "s-group";
+  groupSel.setAttribute("aria-label", t(L, "groupSelectAria"));
+  rebuildGroupOptions(groupSel);
+  groupSel.value = a.group ?? "";
+
   const browse = document.createElement("button");
   browse.type = "button";
   browse.className = "s-app-browse";
@@ -717,7 +995,7 @@ function buildSettingsRow(a: Action): HTMLElement {
   }
 
   top.append(name, kind, del);
-  valueWrap.append(value, browse);
+  valueWrap.append(value, groupSel, browse);
   row.append(top, valueWrap, browser);
   attachAppPicker(row, value, name);
   return row;
@@ -756,6 +1034,12 @@ function localizeSettingsRow(row: HTMLElement): void {
     "aria-label",
     t(L, KIND_LABEL_KEYS[(kind?.value ?? "url") as Action["kind"]]),
   );
+  const groupSel = row.querySelector<HTMLSelectElement>(".s-group");
+  if (groupSel) {
+    groupSel.setAttribute("aria-label", t(L, "groupSelectAria"));
+    const none = groupSel.options[0];
+    if (none) none.textContent = t(L, "noGroup");
+  }
   browser.placeholder = t(L, "browserPlaceholder");
   browser.setAttribute("aria-label", t(L, "browserPlaceholder"));
   del.setAttribute(
@@ -769,14 +1053,17 @@ function localizeSettingsRow(row: HTMLElement): void {
 }
 
 function collectSettingsActions(): Action[] {
+  const saved = collectGroupsFromRows();
   const out: Action[] = [];
   for (const row of settingsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     const name = row.querySelector<HTMLInputElement>(".s-name")!.value.trim();
     const kind = row.querySelector<HTMLSelectElement>(".s-kind")!.value as Action["kind"];
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
     const browser = row.querySelector<HTMLInputElement>(".s-browser")!.value.trim();
+    const group = row.querySelector<HTMLSelectElement>(".s-group")!.value;
     const a: Action = { name, kind, value };
     if (kind === "url" && browser) a.browser = browser;
+    if (group && saved.some((g) => g.id === group)) a.group = group;
     out.push(a);
   }
   return out;
@@ -785,12 +1072,23 @@ function collectSettingsActions(): Action[] {
 async function saveSettings(): Promise<void> {
   const language = langDraft ?? savedLanguage;
   let invalid = false;
+  let groupError = false;
   for (const row of settingsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     const name = row.querySelector<HTMLInputElement>(".s-name")!.value.trim();
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
     const bad = name === "" || value === "";
     row.classList.toggle("invalid", bad);
     if (bad) invalid = true;
+  }
+  for (const row of groupRows()) {
+    const name = row.querySelector<HTMLInputElement>(".g-name")!.value.trim();
+    const bad = name === "" || groupRowError(row) !== "";
+    row.classList.toggle("invalid", bad);
+    if (bad) groupError = true;
+  }
+  if (groupError) {
+    settingsError.textContent = t(currentLanguage, "saveGroupsValidationError");
+    return;
   }
   if (invalid) {
     settingsError.textContent = t(currentLanguage, "saveValidationError");
@@ -801,6 +1099,7 @@ async function saveSettings(): Promise<void> {
   try {
     await invoke("save_config", {
       actions: collectSettingsActions(),
+      groups: collectGroupsFromRows(),
       language: language === "system" ? null : language,
       magnify: settingsMagnify.checked,
     });
@@ -815,6 +1114,7 @@ async function saveSettings(): Promise<void> {
 
 interface ConfigPayload {
   actions: Action[];
+  groups: Group[];
   language: string | null;
   magnify: boolean;
 }
@@ -840,6 +1140,7 @@ async function init(): Promise<void> {
     }),
     listen<ConfigPayload>("config-reloaded", (event: { payload: ConfigPayload }) => {
       actions = event.payload.actions;
+      groups = event.payload.groups ?? [];
       savedLanguage = (event.payload.language ?? "system") as StoredLanguage;
       magnifyEnabled = event.payload.magnify;
       applyLanguage();
@@ -850,6 +1151,7 @@ async function init(): Promise<void> {
 
   const cfg = await invoke<ConfigPayload>("get_config");
   actions = cfg.actions;
+  groups = cfg.groups ?? [];
   savedLanguage = (cfg.language ?? "system") as StoredLanguage;
   magnifyEnabled = cfg.magnify;
   applyLanguage();

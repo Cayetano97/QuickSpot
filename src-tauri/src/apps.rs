@@ -249,7 +249,7 @@ mod tests {
         .unwrap();
         let app = platform::parse_desktop(&dir.join("test.desktop")).unwrap();
         assert_eq!(app.name, "My App");
-        assert_eq!(app.value, "/usr/bin/myapp --flag ");
+        assert_eq!(app.value, "/usr/bin/myapp --flag");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

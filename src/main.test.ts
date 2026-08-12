@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLOSE_MS, OPEN_MS } from "./lib/constants";
-import type { Action } from "./lib/model";
+import type { Action, Group } from "./lib/model";
 
 const { invoke, listen } = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 
@@ -98,6 +98,7 @@ function installDom(): void {
 
 async function mount(config?: {
   actions?: Action[];
+  groups?: Group[];
   language?: string | null;
   magnify?: boolean;
 }): Promise<void> {
@@ -108,6 +109,7 @@ async function mount(config?: {
     if (cmd === "get_config") {
       return Promise.resolve({
         actions: config?.actions ?? ACTIONS,
+        groups: config?.groups ?? [],
         language: config?.language ?? null,
         magnify: config?.magnify ?? true,
       });
@@ -332,7 +334,7 @@ describe("settings panel", () => {
     expect(invoke).not.toHaveBeenCalledWith("save_config", expect.anything());
   });
 
-  it("Save sends actions, language and magnify and closes the panel", async () => {
+  it("Save sends actions, language, groups and magnify and closes the panel", async () => {
     await openOverlay();
     document.querySelector<HTMLButtonElement>("#hub")!.click();
     const name = document.querySelector<HTMLInputElement>(".s-name")!;
@@ -347,6 +349,7 @@ describe("settings panel", () => {
         { name: "Native SDK docs", kind: "url", value: "https://native-sdk.dev" },
         { name: "Reload (use tray)", kind: "command", value: "echo hello" },
       ],
+      groups: [],
       language: null,
       magnify: false,
     });
@@ -391,6 +394,153 @@ describe("app picker", () => {
     list.querySelector<HTMLButtonElement>(".ap-item")!.click();
     expect(document.querySelector<HTMLInputElement>(".s-value")!.value).toBe(
       "/System/Applications/Safari.app",
+    );
+  });
+});
+
+describe("groups", () => {
+  const GROUPS: Group[] = [
+    { id: "work", name: "Work", color: "#5e9eff" },
+    { id: "dev", name: "Dev", color: "#30d158" },
+  ];
+  const GROUPED: Action[] = [
+    { name: "Slack", kind: "url", value: "https://slack.com", group: "work" },
+    { name: "GitHub", kind: "url", value: "https://github.com", group: "dev" },
+    { name: "Google", kind: "url", value: "https://google.com" },
+  ];
+
+  it("colors chips by group and leaves ungrouped chips neutral", async () => {
+    await mount({ actions: GROUPED, groups: GROUPS });
+    await openOverlay();
+    const chips = document.querySelectorAll<HTMLButtonElement>(".chip");
+    expect(chips[0].dataset.group).toBe("work");
+    expect(chips[0].style.getPropertyValue("--group-color")).toBe("#5e9eff");
+    expect(chips[1].dataset.group).toBe("dev");
+    expect(chips[1].style.getPropertyValue("--group-color")).toBe("#30d158");
+    expect(chips[2].dataset.group).toBeUndefined();
+    expect(chips[2].style.getPropertyValue("--group-color")).toBe("");
+  });
+
+  it("keeps an action referencing a missing group uncolored (lenient)", async () => {
+    await mount({ actions: GROUPED, groups: GROUPS.slice(0, 1) });
+    await openOverlay();
+    const chip = document.querySelectorAll<HTMLButtonElement>(".chip")[1];
+    expect(chip.dataset.group).toBeUndefined();
+  });
+
+  it("the editor lists groups and offers them per action", async () => {
+    await mount({ actions: GROUPED, groups: GROUPS });
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const names = [...document.querySelectorAll<HTMLInputElement>(".g-name")].map(
+      (el) => el.value,
+    );
+    expect(names).toEqual(["Work", "Dev"]);
+    const sel = document.querySelector<HTMLSelectElement>(".s-group")!;
+    expect([...sel.options].map((o) => o.value)).toEqual(["", "work", "dev"]);
+    expect(sel.value).toBe("work");
+  });
+
+  it("Save sends groups and per-action group ids", async () => {
+    await mount({ actions: GROUPED, groups: GROUPS });
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith("save_config", {
+      actions: [
+        { name: "Slack", kind: "url", value: "https://slack.com", group: "work" },
+        { name: "GitHub", kind: "url", value: "https://github.com", group: "dev" },
+        { name: "Google", kind: "url", value: "https://google.com" },
+      ],
+      groups: GROUPS,
+      language: null,
+      magnify: true,
+    });
+  });
+
+  it("adding a group row saves it with a unique id", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    document.querySelector<HTMLButtonElement>(".g-add")!.click();
+    const name = document.querySelector<HTMLInputElement>(".g-name")!;
+    name.value = "Social";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({
+        groups: [{ id: "social", name: "Social", color: "#5e9eff" }],
+      }),
+    );
+  });
+
+  it("deleting a group row clears it from the action selects and the save", async () => {
+    await mount({ actions: GROUPED, groups: GROUPS });
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    document.querySelectorAll<HTMLButtonElement>(".g-del")[0].click();
+    const sel = document.querySelector<HTMLSelectElement>(".s-group")!;
+    expect([...sel.options].map((o) => o.value)).toEqual(["", "dev"]);
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({
+        actions: [
+          { name: "Slack", kind: "url", value: "https://slack.com" },
+          { name: "GitHub", kind: "url", value: "https://github.com", group: "dev" },
+          { name: "Google", kind: "url", value: "https://google.com" },
+        ],
+        groups: [GROUPS[1]],
+      }),
+    );
+  });
+
+  it("a too-dark custom color blocks saving with localized errors", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    document.querySelector<HTMLButtonElement>(".g-add")!.click();
+    const name = document.querySelector<HTMLInputElement>(".g-name")!;
+    name.value = "Dark";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    const hex = document.querySelector<HTMLInputElement>(".g-hex")!;
+    hex.value = "#0a0a0a";
+    hex.dispatchEvent(new Event("input", { bubbles: true }));
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    expect(document.querySelector(".g-error")!.textContent).toBe(
+      "Too dark for the dark theme",
+    );
+    expect(document.querySelector("#settings-error")!.textContent).toBe(
+      "Fill in a name and a color for every group",
+    );
+    expect(invoke).not.toHaveBeenCalledWith("save_config", expect.anything());
+  });
+
+  it("an invalid hex format shows the format error", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    document.querySelector<HTMLButtonElement>(".g-add")!.click();
+    const hex = document.querySelector<HTMLInputElement>(".g-hex")!;
+    hex.value = "blue";
+    hex.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(document.querySelector(".g-error")!.textContent).toBe(
+      "Enter a 6-digit hex color",
+    );
+  });
+
+  it("switching the language re-localizes the group editor", async () => {
+    await mount({ groups: GROUPS });
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const select = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    select.value = "es";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(document.querySelector(".settings-groups-title")!.textContent).toBe("Grupos");
+    expect(document.querySelector<HTMLButtonElement>(".g-add")!.textContent).toBe(
+      "Añadir grupo",
     );
   });
 });

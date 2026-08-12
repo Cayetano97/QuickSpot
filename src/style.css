@@ -132,7 +132,12 @@ button {
 .settings-row select:focus-visible,
 .settings-row .s-app-browse:focus-visible,
 .settings-row .s-del:focus-visible,
-.app-picker .ap-item:focus-visible {
+.app-picker .ap-item:focus-visible,
+.settings-groups .g-add:focus-visible,
+.group-row input:focus-visible,
+.group-row .g-swatch:focus-visible,
+.group-row .g-del:focus-visible,
+.group-row .gp-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
@@ -362,6 +367,30 @@ button {
 
 .chip:active {
   background: var(--ghost-fill-active);
+}
+
+/* Group colors: the color accents the icon, the border and the fill so the
+   group identity reads at a glance, while the label and the selection state
+   keep the neutral --accent for legibility (color is never the only cue). */
+.chip[data-group] {
+  border-color: color-mix(in srgb, var(--group-color) 52%, transparent);
+  background: color-mix(in srgb, var(--group-color) 13%, transparent);
+  color: var(--group-color);
+}
+
+.chip[data-group] .chip-label {
+  color: var(--accent);
+}
+
+.chip[data-group].selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--group-color) 30%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chip[data-group]:hover {
+    background: color-mix(in srgb, var(--group-color) 22%, transparent);
+  }
 }
 
 .chip.selected {
@@ -754,6 +783,214 @@ button {
   display: none;
 }
 
+/* ----------------------------------------------------------- groups editor */
+
+.settings-groups {
+  border: 1px solid rgba(229, 229, 229, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-groups-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-groups-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.settings-groups .g-add {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 15px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--ghost-fill);
+  border: 1px solid var(--ghost-border);
+  transition: transform var(--duration-fast) var(--ease-out), background var(--duration-fast) ease;
+}
+
+.settings-groups .g-add:active {
+  transform: scale(0.96);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .settings-groups .g-add:hover {
+    background: var(--ghost-fill-active);
+  }
+}
+
+.settings-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ghost-border);
+  border-radius: 10px;
+  background: var(--chip-fill);
+  padding: 6px;
+  position: relative;
+}
+
+.group-row .g-name,
+.group-row .g-hex {
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--ghost-border);
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 6px 9px;
+  outline: none;
+}
+
+.group-row .g-name:focus,
+.group-row .g-hex:focus {
+  border-color: var(--accent);
+}
+
+.group-row .g-name::placeholder,
+.group-row .g-hex::placeholder {
+  color: rgba(229, 229, 229, 0.35);
+}
+
+.group-row.invalid {
+  border-color: rgba(229, 84, 84, 0.75);
+}
+
+.group-row .g-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-row .g-swatch {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  border: 1px solid var(--ghost-border);
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast) ease;
+}
+
+.group-row .g-swatch:active {
+  transform: scale(0.94);
+}
+
+.group-row .g-swatch-fill {
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--group-color, var(--ghost-fill));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.group-row .g-del {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--duration-fast) var(--ease-out), background var(--duration-fast) ease;
+}
+
+.group-row .g-del:active {
+  transform: scale(0.96);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .group-row .g-del:hover {
+    background: var(--ghost-fill-active);
+  }
+}
+
+.group-row .g-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 6px;
+  z-index: 20;
+  width: 196px;
+  border: 1px solid var(--ghost-border);
+  border-radius: 10px;
+  background: rgba(24, 24, 27, 0.98);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.group-row .g-picker[hidden] {
+  display: none;
+}
+
+.group-row .gp-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.group-row .gp-item {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  transition: transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast) ease;
+}
+
+.group-row .gp-item:active {
+  transform: scale(0.92);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .group-row .gp-item:hover {
+    border-color: var(--accent);
+    transform: scale(1.06);
+  }
+}
+
+.group-row .gp-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.group-row .g-error {
+  font-size: 10.5px;
+  color: #ff8f8f;
+  min-height: 13px;
+}
+
+.settings-row .s-group {
+  flex: 0 0 auto;
+  max-width: 108px;
+  cursor: default;
+}
+
 .app-picker {
   border: 1px solid var(--ghost-border);
   border-radius: 10px;
@@ -988,6 +1225,12 @@ button {
   .settings-row,
   .settings-row .s-app-browse,
   .settings-row .s-del,
+  .settings-groups,
+  .settings-groups .g-add,
+  .group-row,
+  .group-row .g-swatch,
+  .group-row .g-del,
+  .group-row .gp-item,
   .switch-track,
   .switch-track::after {
     transition-duration: 1ms;
@@ -1014,6 +1257,9 @@ button {
   .settings-row,
   .settings-row input,
   .settings-row select,
+  .settings-groups,
+  .group-row,
+  .group-row input,
   #settings-lang {
     border-color: var(--accent);
   }

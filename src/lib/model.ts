@@ -8,6 +8,57 @@ export interface Action {
   value: string;
   browser?: string | null;
   hint?: string | null;
+  /** Id of the group this action belongs to, if any. */
+  group?: string | null;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  color: string;
+}
+
+/** Curated 6-digit hex colors, each readable (luminance >= READABLE_LUMINANCE)
+ * on the dark disc. Free-form colors are validated against the same bar. */
+export const isHexColor = (s: string): boolean => /^#[0-9a-f]{6}$/i.test(s);
+
+/** WCAG relative luminance of a #rrggbb hex color (0 = black, 1 = white). */
+export function hexLuminance(hex: string): number {
+  if (!isHexColor(hex)) return 0;
+  let sum = 0;
+  for (let i = 0; i < 3; i++) {
+    const v = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+    const lin = v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    sum += lin * (i === 0 ? 0.2126 : i === 1 ? 0.7152 : 0.0722);
+  }
+  return sum;
+}
+
+/** Minimum luminance for a color to contrast (~4.5:1) against the dark disc
+ * fill (#111113); below that a hex color is rejected in the settings editor. */
+export const READABLE_LUMINANCE = 0.2;
+
+export const isReadableOnDark = (hex: string): boolean =>
+  hexLuminance(hex) >= READABLE_LUMINANCE;
+
+/** Lowercase alphanumeric slug ("Dev Tools" -> "dev-tools"); diacritics are
+ * stripped first ("Wörk" -> "work"); falls back to `fallback` when nothing
+ * slugifiable remains. */
+export function slugify(s: string, fallback = "group"): string {
+  const normalized = s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const slug = normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || fallback;
+}
+
+/** First id (from `slugify(name)`) not already taken by `groups`. */
+export function uniqueGroupId(groups: readonly Group[], name: string): string {
+  const base = slugify(name);
+  let id = base;
+  for (let n = 2; groups.some((g) => g.id === id); n++) id = `${base}-${n}`;
+  return id;
 }
 
 /**

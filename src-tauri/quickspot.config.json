@@ -1,11 +1,13 @@
 {
   "actions": [
     {
+      "group": "t",
       "kind": "url",
       "name": "Google",
       "value": "Google.com"
     },
     {
+      "group": "t",
       "kind": "url",
       "name": "Sadada",
       "value": "Google.com"
@@ -14,6 +16,13 @@
       "kind": "url",
       "name": "Dd",
       "value": "Google.com"
+    }
+  ],
+  "groups": [
+    {
+      "color": "#5e9eff",
+      "id": "t",
+      "name": "Testeo"
     }
   ]
 }
