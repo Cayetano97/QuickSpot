@@ -38,6 +38,9 @@
     "active": true,
     "targets": "all",
     "category": "Utility",
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "shortDescription": "Spotlight-style quick-action launcher",
     "longDescription": "A round, always-on-top quick launcher with a global hotkey and actions that orbit a central hub.",
     "icon": [

@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish-tauri:
+    name: Publish (${{ matrix.platform }})
+    permissions:
+      contents: write
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri needs the webkit2gtk toolchain to compile and bundle on Linux;
+      # the Windows and macOS runners already ship their platform toolchains
+      # (MSVC + WebView2 / Xcode CLT).
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Both targets are only used on macOS runners, so it's in an `if`
+          # to slightly speed up the Windows and Linux builds.
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # The Windows MSI bundler downloads the WiX3 toolset on first use with
+      # no retry, which flakes on GitHub's runners (io: Peer disconnected).
+      # Pre-fetch it (with curl retries) into the bundler's cache directory so
+      # the bundler finds it already present and skips its own download.
+      - name: Pre-fetch WiX3 toolset (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $wixDir = Join-Path $env:LOCALAPPDATA 'tauri\WixTools314'
+          if (!(Test-Path (Join-Path $wixDir 'light.exe'))) {
+            $zip = Join-Path $env:TEMP 'wix314-binaries.zip'
+            curl.exe -L --fail --connect-timeout 30 --retry 5 --retry-delay 5 --retry-all-errors -o $zip `
+              https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip
+            $expected = '6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31'
+            if ((Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower() -ne $expected) {
+              throw 'WiX3 download failed SHA256 verification'
+            }
+            New-Item -ItemType Directory -Force -Path $wixDir | Out-Null
+            Expand-Archive -Path $zip -DestinationPath $wixDir -Force
+            Remove-Item $zip
+          }
+          "WixTools314 files: $((Get-ChildItem $wixDir).Count)"
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'QuickSpot v__VERSION__'
+          releaseBody: |
+            Initial release
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
