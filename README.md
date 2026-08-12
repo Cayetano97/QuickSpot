@@ -142,9 +142,10 @@ QuickSpot/
   monitor-centering math.
 
 Both suites run on GitHub Actions for every push and pull request (see
-`.github/workflows/ci.yml`): the frontend on Linux, the backend on Linux
-and macOS (add Windows to the matrix in the workflow to cover the
-`cmd /c` shell branch).
+`.github/workflows/ci.yml`): the frontend on Linux, the backend on Linux,
+macOS and Windows — so the platform-specific branches (macOS bundle-id
+routing, the Windows `cmd /c` shell, Linux `.desktop` parsing) are
+exercised on their real platforms.
 
 ## License
 
