@@ -153,7 +153,7 @@ mod platform {
         }
     }
 
-    fn parse_desktop(path: &Path) -> Option<AppEntry> {
+    pub(crate) fn parse_desktop(path: &Path) -> Option<AppEntry> {
         let text = std::fs::read_to_string(path).ok()?;
         let mut name = None;
         let mut exec = None;
