@@ -36,6 +36,7 @@ pub fn run() {
             // A second launch focuses/shows the existing instance.
             overlay::open(app);
         }))
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()

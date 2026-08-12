@@ -27,6 +27,12 @@ export const QUERY_Y = 264;
 export const HUB_Y = QUERY_Y - 50;
 export const MINIMIZE_Y = QUERY_Y + QUERY_H + 14;
 
+/** Hub control cluster: the settings gear and the add-actions button sit
+ * side by side, evenly spaced around the center line (36px buttons, 8px
+ * gap, so each is offset by 22px). */
+export const HUB_X = CENTER_X + 22;
+export const ADD_X = CENTER_X - 22;
+
 export const GRIP_W = 96;
 export const GRIP_H = 24;
 export const GRIP_Y = 52;

@@ -11,10 +11,12 @@ interface Dict {
   minimize: string;
   dragAria: string;
   settingsTitle: string;
+  actionsTitle: string;
+  addActions: string;
   languageLabel: string;
   languageSystem: string;
   magnifyLabel: string;
-  done: string;
+  autostartLabel: string;
   addAction: string;
   save: string;
   saveError: string;
@@ -32,6 +34,10 @@ interface Dict {
   noAppsFound: string;
   saveValidationError: string;
   saveGroupsValidationError: string;
+  generalLabel: string;
+  actionsLabel: string;
+  actionsCount: string;
+  noActions: string;
   groupsLabel: string;
   addGroup: string;
   groupNamePlaceholder: string;
@@ -54,10 +60,12 @@ const en: Dict = {
   minimize: "Minimize to tray",
   dragAria: "Drag to move the window",
   settingsTitle: "Settings",
+  actionsTitle: "Actions",
+  addActions: "Add actions",
   languageLabel: "Language",
   languageSystem: "System default",
   magnifyLabel: "Magnify on hover",
-  done: "Done",
+  autostartLabel: "Launch at login",
   addAction: "Add action",
   save: "Save",
   saveError: "Couldn't save: {msg}",
@@ -75,6 +83,10 @@ const en: Dict = {
   noAppsFound: "No apps found",
   saveValidationError: "Fill in a name and a value for every action",
   saveGroupsValidationError: "Fill in a name and a color for every group",
+  generalLabel: "General",
+  actionsLabel: "Actions",
+  actionsCount: "{count} actions",
+  noActions: "No actions yet. Use “Add action” to create the first one.",
   groupsLabel: "Groups",
   addGroup: "Add group",
   groupNamePlaceholder: "Group name",
@@ -97,10 +109,12 @@ const es: Dict = {
   minimize: "Minimizar a la bandeja",
   dragAria: "Arrastrar para mover la ventana",
   settingsTitle: "Ajustes",
+  actionsTitle: "Acciones",
+  addActions: "Añadir acciones",
   languageLabel: "Idioma",
   languageSystem: "Idioma del sistema",
   magnifyLabel: "Ampliar al pasar el ratón",
-  done: "Listo",
+  autostartLabel: "Iniciar con el sistema operativo",
   addAction: "Añadir acción",
   save: "Guardar",
   saveError: "No se pudo guardar: {msg}",
@@ -118,6 +132,10 @@ const es: Dict = {
   noAppsFound: "No se encontraron apps",
   saveValidationError: "Completa el nombre y el valor de cada acción",
   saveGroupsValidationError: "Completa el nombre y el color de cada grupo",
+  generalLabel: "General",
+  actionsLabel: "Acciones",
+  actionsCount: "{count} acciones",
+  noActions: "Aún no hay acciones. Usa «Añadir acción» para crear la primera.",
   groupsLabel: "Grupos",
   addGroup: "Añadir grupo",
   groupNamePlaceholder: "Nombre del grupo",

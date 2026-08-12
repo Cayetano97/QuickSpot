@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import {
+  ADD_X,
   CENTER_X,
   CHIP_H,
   CHIP_W,
@@ -8,6 +10,7 @@ import {
   GRIP_H,
   GRIP_W,
   GRIP_Y,
+  HUB_X,
   HUB_Y,
   MAX_FINAL_SCALE,
   MAX_VISIBLE,
@@ -61,10 +64,12 @@ let savedLanguage: StoredLanguage = "system";
 let langDraft: StoredLanguage | null = null;
 let currentLanguage: Language = resolveLanguage(savedLanguage);
 let magnifyEnabled = true;
+let autostartAtOpen = false;
 
 const root = document.querySelector<HTMLElement>("#overlay")!;
 const disc = document.querySelector<HTMLElement>("#disc")!;
 const hub = document.querySelector<HTMLButtonElement>("#hub")!;
+const addBtn = document.querySelector<HTMLButtonElement>("#add")!;
 const minimize = document.querySelector<HTMLButtonElement>("#minimize")!;
 const grip = document.querySelector<HTMLElement>("#grip")!;
 const input = document.querySelector<HTMLInputElement>("#query")!;
@@ -80,12 +85,18 @@ const settingsTitle = document.querySelector<HTMLElement>("#settings-title")!;
 const settingsLanguageLabel = document.querySelector<HTMLElement>("#settings-language-label")!;
 const settingsDockLabel = document.querySelector<HTMLElement>("#settings-dock-label")!;
 const settingsMagnify = document.querySelector<HTMLInputElement>("#settings-magnify")!;
+const settingsAutostart = document.querySelector<HTMLInputElement>("#settings-autostart")!;
+const settingsAutostartLabel = document.querySelector<HTMLElement>("#settings-autostart-label")!;
 const langSelect = document.querySelector<HTMLSelectElement>("#settings-lang")!;
-const settingsRows = document.querySelector<HTMLElement>("#settings-rows")!;
 const settingsError = document.querySelector<HTMLElement>("#settings-error")!;
-const settingsAdd = document.querySelector<HTMLButtonElement>("#settings-add")!;
 const settingsSave = document.querySelector<HTMLButtonElement>("#settings-save")!;
-const settingsDone = document.querySelector<HTMLButtonElement>("#settings-done")!;
+
+const actionsPanel = document.querySelector<HTMLElement>("#actions")!;
+const actionsTitle = document.querySelector<HTMLElement>("#actions-title")!;
+const actionsRows = document.querySelector<HTMLElement>("#actions-rows")!;
+const actionsError = document.querySelector<HTMLElement>("#actions-error")!;
+const actionsSave = document.querySelector<HTMLButtonElement>("#actions-save")!;
+let actionsAdd: HTMLButtonElement | null = null;
 
 let uiScale = 1;
 
@@ -162,6 +173,7 @@ function localizeAll(): void {
   input.setAttribute("aria-label", t(L, "searchAria"));
   chipsHost.setAttribute("aria-label", t(L, "actionsAria"));
   hub.setAttribute("aria-label", t(L, "settingsAria"));
+  addBtn.setAttribute("aria-label", t(L, "addActions"));
   grip.setAttribute("aria-label", t(L, "dragAria"));
   minimize.setAttribute("aria-label", t(L, "minimize"));
   settingsTitle.textContent = t(L, "settingsTitle");
@@ -169,17 +181,25 @@ function localizeAll(): void {
   settingsLanguageLabel.textContent = t(L, "languageLabel");
   settingsDockLabel.textContent = t(L, "magnifyLabel");
   settingsMagnify.setAttribute("aria-label", t(L, "magnifyLabel"));
+  settingsAutostartLabel.textContent = t(L, "autostartLabel");
+  settingsAutostart.setAttribute("aria-label", t(L, "autostartLabel"));
   langSelect.setAttribute("aria-label", t(L, "languageLabel"));
   langSelect.options[0].textContent = t(L, "languageSystem");
-  settingsDone.textContent = t(L, "done");
-  settingsDone.setAttribute("aria-label", t(L, "done"));
-  settingsAdd.textContent = t(L, "addAction");
+  actionsTitle.textContent = t(L, "actionsTitle");
+  actionsPanel.setAttribute("aria-label", t(L, "actionsTitle"));
+  if (actionsAdd) actionsAdd.textContent = t(L, "addAction");
   settingsSave.textContent = t(L, "save");
   settingsError.textContent = "";
-  for (const row of settingsRows.querySelectorAll<HTMLElement>(".settings-row")) {
+  actionsSave.textContent = t(L, "save");
+  actionsError.textContent = "";
+  actionsRows.setAttribute("aria-label", t(L, "actionsAria"));
+  const generalHeading = document.querySelector<HTMLElement>("#settings-general-heading");
+  if (generalHeading) generalHeading.textContent = t(L, "generalLabel");
+  for (const row of actionsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     localizeSettingsRow(row);
   }
   localizeGroupsEditor();
+  localizeActionsSection();
 }
 
 function refilter(): void {
@@ -222,7 +242,7 @@ function syncChips(): void {
     el.classList.toggle("selected", i === selected);
     el.setAttribute("aria-label", action.name);
     el.setAttribute("aria-pressed", String(i === selected));
-    el.tabIndex = settingsOpen ? -1 : 0;
+    el.tabIndex = panelOpen() ? -1 : 0;
   }
   applyChipTransforms();
 }
@@ -256,8 +276,12 @@ function render(): void {
   disc.style.opacity = String(easeOutQuart(dp));
 
   const hubScale = easeOutCubic(dp);
-  hub.style.transform = `translate(${CENTER_X}px, ${HUB_Y}px) translateX(-50%) scale(${hubScale})`;
+  hub.style.transform = `translate(${HUB_X}px, ${HUB_Y}px) translateX(-50%) scale(${hubScale})`;
   hub.style.opacity = String(easeOutQuart(dp));
+
+  const addScale = easeOutCubic(dp);
+  addBtn.style.transform = `translate(${ADD_X}px, ${HUB_Y}px) translateX(-50%) scale(${addScale})`;
+  addBtn.style.opacity = String(easeOutQuart(dp));
 
   const slide = (1 - easeOutCubic(dp)) * 16;
   minimize.style.transform = `translate(${CENTER_X}px, ${MINIMIZE_Y + slide}px) translateX(-50%)`;
@@ -289,6 +313,7 @@ function render(): void {
   const enabled = dp >= 0.05;
   const pe = enabled ? "auto" : "none";
   hub.style.pointerEvents = pe;
+  addBtn.style.pointerEvents = pe;
   minimize.style.pointerEvents = pe;
   for (let i = 0; i < MAX_VISIBLE; i++) chips[i].style.pointerEvents = pe;
 }
@@ -355,8 +380,8 @@ input.addEventListener("keydown", (e) => {
   const key = e.key;
   if (key === "Escape") {
     e.preventDefault();
-    if (settingsOpen) {
-      closeSettings();
+    if (settingsOpen || actionsOpen) {
+      closePanels();
       return;
     }
     void invoke("close_overlay");
@@ -400,9 +425,14 @@ hub.addEventListener("click", () => {
   else openSettings();
 });
 
-settingsDone.addEventListener("click", () => closeSettings());
+addBtn.addEventListener("click", () => {
+  if (actionsOpen) closeActions();
+  else openActions();
+});
 
-settingsRows.addEventListener("click", (e) => {
+// Clicking outside a picker dismisses it. The actions panel owns all the
+// app/group pickers, so only it needs the listener.
+actionsRows.addEventListener("click", (e) => {
   const target = e.target as HTMLElement;
   if (target.closest(".app-picker") || target.closest(".s-app-browse")) return;
   if (target.closest(".g-picker") || target.closest(".g-swatch")) return;
@@ -410,14 +440,24 @@ settingsRows.addEventListener("click", (e) => {
   closeGroupPickers();
 });
 
-settingsAdd.addEventListener("click", () => {
-  const row = buildSettingsRow({ name: "", kind: "url", value: "" });
-  settingsRows.appendChild(row);
-  row.querySelector<HTMLInputElement>(".s-name")?.focus();
+settingsPanel.addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!settingsSave.disabled) void saveSettings();
 });
 
 settingsSave.addEventListener("click", () => {
+  if (settingsSave.disabled) return;
   void saveSettings();
+});
+
+actionsPanel.addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!actionsSave.disabled) void saveActions();
+});
+
+actionsSave.addEventListener("click", () => {
+  if (actionsSave.disabled) return;
+  void saveActions();
 });
 
 langSelect.addEventListener("change", () => {
@@ -426,12 +466,39 @@ langSelect.addEventListener("change", () => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (!settingsOpen) return;
+  if (!settingsOpen && !actionsOpen) return;
   if (e.key === "Escape") {
     e.preventDefault();
-    closeSettings();
+    closePanels();
   }
 });
+
+// Focus trap: Tab cycles inside the panel instead of escaping to the
+// (invisible) overlay controls or the webview chrome.
+for (const panel of [settingsPanel, actionsPanel]) {
+  panel.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab" || !panel.classList.contains("open")) return;
+    const focusables = [...panel.querySelectorAll<HTMLElement>(
+      'button, select, input, textarea, [tabindex]:not([tabindex="-1"])',
+    )].filter((el) => {
+      if (el.hidden) return false;
+      if (el.getAttribute("tabindex") === "-1") return false;
+      if (el instanceof HTMLButtonElement && el.disabled) return false;
+      return true;
+    });
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    if (e.shiftKey && (active === first || !active || !panel.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
+}
 
 minimize.addEventListener("click", () => {
   void invoke("hide_to_tray");
@@ -470,7 +537,7 @@ root.addEventListener("pointermove", (e) => {
   // Hover selects (Spotlight-style): the highlight follows the cursor so the
   // first chip stops being permanently highlighted once the user points
   // anywhere else. Keyboard navigation keeps working via `selected`.
-  const hovered = overlay.phase === "visible" && !settingsOpen ? chipAtPointer() : -1;
+  const hovered = overlay.phase === "visible" && !panelOpen() ? chipAtPointer() : -1;
   if (hovered >= 0) {
     selectionSource = "mouse";
     if (hovered !== selected) {
@@ -479,7 +546,7 @@ root.addEventListener("pointermove", (e) => {
     } else {
       applyChipTransforms();
     }
-  } else if (overlay.phase === "visible" && !settingsOpen) {
+  } else if (overlay.phase === "visible" && !panelOpen()) {
     // The cursor is on no chip (gap or center): release a mouse-driven
     // highlight so the last hovered chip does not stay lit. A keyboard
     // selection survives until the cursor takes over.
@@ -517,48 +584,174 @@ root.addEventListener("pointerleave", () => {
 });
 
 root.addEventListener("click", () => {
-  if (!settingsOpen) input.focus();
+  if (!panelOpen()) input.focus();
 });
 
-// ---------------------------------------------------------------- settings
+// ---------------------------------------------------------------- panels
 
 let settingsOpen = false;
+let actionsOpen = false;
+
+/** Whether any panel (settings or actions) is currently open. */
+function panelOpen(): boolean {
+  return settingsOpen || actionsOpen;
+}
+
+/** Close whichever panel is open (never both: they are mutually exclusive). */
+function closePanels(): void {
+  if (settingsOpen) closeSettings();
+  else if (actionsOpen) closeActions();
+}
 
 function openSettings(): void {
   if (settingsOpen || overlay.phase !== "visible") return;
+  if (actionsOpen) closeActions();
   settingsOpen = true;
   settingsError.textContent = "";
   settingsSave.disabled = false;
   langSelect.value = langDraft ?? savedLanguage;
   settingsMagnify.checked = magnifyEnabled;
-  rebuildSettingsRows();
+  settingsAutostart.checked = autostartAtOpen;
+  void isEnabled()
+    .then((on) => {
+      if (settingsOpen) {
+        autostartAtOpen = on;
+        settingsAutostart.checked = on;
+      }
+    })
+    .catch(() => {});
+  focusPanel(settingsPanel);
+  settingsPanel.querySelector<HTMLElement>("#settings-lang")?.focus();
+}
+
+function openActions(): void {
+  if (actionsOpen || overlay.phase !== "visible") return;
+  if (settingsOpen) closeSettings();
+  actionsOpen = true;
+  actionsError.textContent = "";
+  actionsSave.disabled = false;
+  rebuildActionsRows();
+  focusPanel(actionsPanel);
+  actionsRows.querySelector<HTMLInputElement>(".s-name")?.focus();
+}
+
+/** Hides the launcher controls and makes the panel the only tabbable area. */
+function focusPanel(panel: HTMLElement): void {
   for (const chip of chips) chip.tabIndex = -1;
-  root.classList.add("settings");
-  settingsPanel.classList.add("open");
-  settingsPanel.setAttribute("aria-hidden", "false");
+  hub.tabIndex = -1;
+  addBtn.tabIndex = -1;
+  minimize.tabIndex = -1;
+  input.tabIndex = -1;
+  root.classList.add("panel");
+  panel.classList.add("open");
+  panel.setAttribute("aria-hidden", "false");
   input.blur();
-  settingsRows.querySelector<HTMLInputElement>(".s-name")?.focus();
+}
+
+/** Restores the launcher controls after a panel closes. */
+function releasePanel(): void {
+  root.classList.remove("panel");
+  hub.tabIndex = 0;
+  addBtn.tabIndex = 0;
+  minimize.tabIndex = 0;
+  input.tabIndex = 0;
 }
 
 function closeSettings(): void {
   if (!settingsOpen) return;
   settingsOpen = false;
-  closeAppPickers();
-  closeGroupPickers();
   langDraft = null;
   applyLanguage();
   settingsPanel.classList.remove("open");
   settingsPanel.setAttribute("aria-hidden", "true");
-  root.classList.remove("settings");
+  releasePanel();
   refilter();
   if (overlay.phase === "visible") input.focus();
 }
 
-function rebuildSettingsRows(): void {
-  settingsRows.textContent = "";
+function closeActions(): void {
+  if (!actionsOpen) return;
+  actionsOpen = false;
+  closeAppPickers();
+  closeGroupPickers();
+  actionsPanel.classList.remove("open");
+  actionsPanel.setAttribute("aria-hidden", "true");
+  releasePanel();
+  refilter();
+  if (overlay.phase === "visible") input.focus();
+}
+
+function rebuildActionsRows(): void {
+  actionsRows.textContent = "";
   rebuildGroupsEditor();
-  for (const a of actions) settingsRows.appendChild(buildSettingsRow(a));
-  settingsAdd.hidden = false;
+
+  const block = document.createElement("section");
+  block.className = "settings-actions";
+  block.setAttribute("aria-labelledby", "settings-actions-heading");
+
+  const header = document.createElement("div");
+  header.className = "settings-actions-header";
+  const title = document.createElement("h2");
+  title.className = "settings-actions-title";
+  title.id = "settings-actions-heading";
+  const count = document.createElement("span");
+  count.className = "settings-actions-count";
+  const add = document.createElement("button");
+  add.type = "button";
+  add.id = "actions-add";
+  add.textContent = t(currentLanguage, "addAction");
+  header.append(title, count, add);
+
+  const list = document.createElement("div");
+  list.className = "settings-actions-list";
+  const hint = document.createElement("div");
+  hint.className = "settings-actions-empty";
+  hint.hidden = true;
+
+  block.append(header, list, hint);
+  actionsRows.appendChild(block);
+  actionsAdd = add;
+
+  add.addEventListener("click", () => {
+    const row = buildSettingsRow({ name: "", kind: "url", value: "" });
+    list.appendChild(row);
+    afterActionsChanged();
+    row.querySelector<HTMLInputElement>(".s-name")?.focus();
+  });
+
+  for (const a of actions) list.appendChild(buildSettingsRow(a));
+  afterActionsChanged();
+  localizeActionsSection();
+}
+
+/** Keep the actions list header count, empty hint and add button in sync. */
+function afterActionsChanged(): void {
+  const list = actionsRows.querySelector<HTMLElement>(".settings-actions-list");
+  const hint = actionsRows.querySelector<HTMLElement>(".settings-actions-empty");
+  if (!list) return;
+  if (hint) hint.hidden = list.querySelectorAll(".settings-row").length > 0;
+  syncActionsCount();
+}
+
+function syncActionsCount(): void {
+  const list = actionsRows.querySelector<HTMLElement>(".settings-actions-list");
+  const countEl = actionsRows.querySelector<HTMLElement>(".settings-actions-count");
+  if (!list || !countEl) return;
+  const count = list.querySelectorAll(".settings-row").length;
+  countEl.textContent = String(count);
+  countEl.setAttribute(
+    "aria-label",
+    t(currentLanguage, "actionsCount", { count: String(count) }),
+  );
+}
+
+function localizeActionsSection(): void {
+  const L = currentLanguage;
+  const title = actionsRows.querySelector<HTMLElement>(".settings-actions-title");
+  if (title) title.textContent = t(L, "actionsLabel");
+  const hint = actionsRows.querySelector<HTMLElement>(".settings-actions-empty");
+  if (hint) hint.textContent = t(L, "noActions");
+  syncActionsCount();
 }
 
 interface InstalledApp {
@@ -588,20 +781,28 @@ function filterApps(apps: InstalledApp[], query: string): InstalledApp[] {
   return out;
 }
 
-function renderAppList(list: HTMLElement, apps: InstalledApp[]): void {
+function renderAppList(
+  list: HTMLElement,
+  apps: InstalledApp[],
+  onRender?: (items: HTMLElement[]) => void,
+): void {
   list.textContent = "";
   if (apps.length === 0) {
     const empty = document.createElement("div");
     empty.className = "ap-empty";
     empty.textContent = t(currentLanguage, "noAppsFound");
     list.appendChild(empty);
+    onRender?.([]);
     return;
   }
+  const items: HTMLElement[] = [];
   for (const app of apps) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "ap-item";
     item.setAttribute("role", "option");
+    item.id = `${list.id}-opt-${items.length}`;
+    item.setAttribute("aria-selected", "false");
     item.dataset.value = app.value;
     item.dataset.name = app.name;
     const label = document.createElement("span");
@@ -612,7 +813,9 @@ function renderAppList(list: HTMLElement, apps: InstalledApp[]): void {
     path.textContent = app.value;
     item.append(label, path);
     list.appendChild(item);
+    items.push(item);
   }
+  onRender?.(items);
 }
 
 function closeAppPickers(except?: HTMLElement): void {
@@ -625,19 +828,55 @@ function closeAppPickers(except?: HTMLElement): void {
   }
 }
 
+let apPickerSeq = 0;
+
 function attachAppPicker(row: HTMLElement, value: HTMLInputElement, name: HTMLInputElement): void {
   const picker = document.createElement("div");
   picker.className = "app-picker";
   picker.hidden = true;
 
+  const listId = `ap-list-${++apPickerSeq}`;
   const search = document.createElement("input");
   search.type = "text";
   search.className = "ap-search";
+  search.setAttribute("role", "combobox");
+  search.setAttribute("aria-autocomplete", "list");
+  search.setAttribute("aria-controls", listId);
+  search.setAttribute("aria-expanded", "false");
   search.placeholder = t(currentLanguage, "appSearchPlaceholder");
 
   const list = document.createElement("div");
   list.className = "ap-list";
+  list.id = listId;
   list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", t(currentLanguage, "appSearchPlaceholder"));
+
+  let activeIdx = -1;
+  let options: HTMLElement[] = [];
+
+  const syncActive = (idx: number, scroll: boolean): void => {
+    for (let i = 0; i < options.length; i++) {
+      const on = i === idx;
+      options[i].classList.toggle("ap-active", on);
+      options[i].setAttribute("aria-selected", String(on));
+    }
+    if (idx >= 0 && options[idx]) {
+      search.setAttribute("aria-activedescendant", options[idx].id);
+      if (scroll) options[idx].scrollIntoView?.({ block: "nearest" });
+    } else {
+      search.removeAttribute("aria-activedescendant");
+    }
+    search.setAttribute("aria-expanded", String(!picker.hidden));
+  };
+
+  const choose = (item: HTMLElement): void => {
+    value.value = item.dataset.value ?? "";
+    if (name.value.trim() === "") name.value = item.dataset.name ?? "";
+    picker.hidden = true;
+    browse.setAttribute("aria-expanded", "false");
+    search.setAttribute("aria-expanded", "false");
+    value.focus();
+  };
 
   const browse = row.querySelector<HTMLButtonElement>(".s-app-browse")!;
   browse.setAttribute("aria-haspopup", "listbox");
@@ -646,30 +885,69 @@ function attachAppPicker(row: HTMLElement, value: HTMLInputElement, name: HTMLIn
     if (!picker.hidden) {
       picker.hidden = true;
       browse.setAttribute("aria-expanded", "false");
+      search.setAttribute("aria-expanded", "false");
       return;
     }
     closeAppPickers(picker);
     picker.hidden = false;
     browse.setAttribute("aria-expanded", "true");
+    search.setAttribute("aria-expanded", "true");
     search.value = "";
     search.setAttribute("aria-label", t(currentLanguage, "appSearchPlaceholder"));
     renderAppList(list, []);
     search.focus();
-    void getInstalledApps().then((apps) => renderAppList(list, filterApps(apps, "")));
+    void getInstalledApps().then((apps) =>
+      renderAppList(list, filterApps(apps, ""), (items) => {
+        options = items;
+        activeIdx = -1;
+        syncActive(-1, false);
+      }),
+    );
   });
 
   search.addEventListener("input", () => {
-    void getInstalledApps().then((apps) => renderAppList(list, filterApps(apps, search.value)));
+    void getInstalledApps().then((apps) =>
+      renderAppList(list, filterApps(apps, search.value), (items) => {
+        options = items;
+        activeIdx = -1;
+        syncActive(-1, false);
+      }),
+    );
+  });
+
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      picker.hidden = true;
+      browse.setAttribute("aria-expanded", "false");
+      search.setAttribute("aria-expanded", "false");
+      browse.focus();
+      return;
+    }
+    if (options.length === 0) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const item = options[activeIdx >= 0 ? activeIdx : 0];
+      if (item) choose(item);
+      return;
+    }
+    let next = -1;
+    if (e.key === "ArrowDown") next = activeIdx + 1 < options.length ? activeIdx + 1 : 0;
+    else if (e.key === "ArrowUp") next = activeIdx - 1 >= 0 ? activeIdx - 1 : options.length - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = options.length - 1;
+    if (next >= 0) {
+      e.preventDefault();
+      activeIdx = next;
+      syncActive(activeIdx, true);
+    }
   });
 
   list.addEventListener("click", (e) => {
     const item = (e.target as HTMLElement).closest<HTMLElement>(".ap-item");
     if (!item) return;
-    value.value = item.dataset.value ?? "";
-    if (name.value.trim() === "") name.value = item.dataset.name ?? "";
-    picker.hidden = true;
-    browse.setAttribute("aria-expanded", "false");
-    value.focus();
+    choose(item);
   });
 
   picker.append(search, list);
@@ -679,11 +957,11 @@ function attachAppPicker(row: HTMLElement, value: HTMLInputElement, name: HTMLIn
 // ----------------------------------------------------------- groups editor
 
 function groupRows(): HTMLElement[] {
-  return [...settingsRows.querySelectorAll<HTMLElement>(".group-row")];
+  return [...actionsRows.querySelectorAll<HTMLElement>(".group-row")];
 }
 
 function closeGroupPickers(except?: HTMLElement): void {
-  for (const picker of settingsRows.querySelectorAll<HTMLElement>(".g-picker")) {
+  for (const picker of actionsRows.querySelectorAll<HTMLElement>(".g-picker")) {
     if (picker === except || picker.hidden) continue;
     picker.hidden = true;
     picker.parentElement
@@ -719,6 +997,10 @@ function localizeGroupRow(row: HTMLElement): void {
   name.placeholder = t(L, "groupNamePlaceholder");
   name.setAttribute("aria-label", t(L, "groupNamePlaceholder"));
   swatch.setAttribute("aria-label", t(L, "groupColorAria", { name: label }));
+  row.querySelector<HTMLElement>(".gp-grid")?.setAttribute(
+    "aria-label",
+    t(L, "groupColorAria", { name: label }),
+  );
   del.setAttribute("aria-label", t(L, "deleteGroup", { name: label }));
   hex.placeholder = t(L, "customColorPlaceholder");
   hex.setAttribute("aria-label", t(L, "customColorPlaceholder"));
@@ -738,7 +1020,7 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
   const swatch = document.createElement("button");
   swatch.type = "button";
   swatch.className = "g-swatch";
-  swatch.setAttribute("aria-haspopup", "true");
+  swatch.setAttribute("aria-haspopup", "listbox");
   swatch.setAttribute("aria-expanded", "false");
   const fill = document.createElement("span");
   fill.className = "g-swatch-fill";
@@ -750,15 +1032,71 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
 
   const grid = document.createElement("div");
   grid.className = "gp-grid";
+  grid.setAttribute("role", "listbox");
+  grid.setAttribute("aria-label", t(currentLanguage, "groupColorAria", { name }));
+  const gpItems: HTMLButtonElement[] = [];
   for (const c of GROUP_PALETTE) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "gp-item";
+    item.setAttribute("role", "option");
+    item.tabIndex = -1;
     item.dataset.color = c;
     item.setAttribute("aria-label", c);
     item.style.background = c;
     grid.appendChild(item);
+    gpItems.push(item);
   }
+  let gpIdx = -1;
+
+  /** Move the selected-color check to whatever the hex input currently holds. */
+  const refreshGp = (): void => {
+    const current = hex.value.trim().toLowerCase();
+    for (const item of gpItems) {
+      const on = item.dataset.color === current;
+      item.classList.toggle("gp-selected", on);
+      item.setAttribute("aria-selected", String(on));
+    }
+  };
+
+  /** Roving tabindex over the palette: focus the item at `idx`. */
+  const focusGp = (idx: number): void => {
+    if (idx < 0 || idx >= gpItems.length) return;
+    gpIdx = idx;
+    for (let i = 0; i < gpItems.length; i++) gpItems[i].tabIndex = i === idx ? 0 : -1;
+    gpItems[idx].focus();
+  };
+
+  grid.addEventListener("keydown", (e) => {
+    const cols = 5;
+    let next = -1;
+    if (e.key === "ArrowRight") next = (gpIdx + 1) % gpItems.length;
+    else if (e.key === "ArrowLeft") next = (gpIdx - 1 + gpItems.length) % gpItems.length;
+    else if (e.key === "ArrowDown")
+      next = gpIdx + cols < gpItems.length ? gpIdx + cols : gpIdx % cols;
+    else if (e.key === "ArrowUp")
+      next = gpIdx - cols >= 0 ? gpIdx - cols : Math.floor(gpIdx / cols) * cols;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = gpItems.length - 1;
+    else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (gpIdx >= 0) gpItems[gpIdx].click();
+      return;
+    }
+    if (next >= 0) {
+      e.preventDefault();
+      focusGp(next);
+    }
+  });
+
+  picker.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    picker.hidden = true;
+    swatch.setAttribute("aria-expanded", "false");
+    swatch.focus();
+  });
 
   const custom = document.createElement("div");
   custom.className = "gp-custom";
@@ -794,12 +1132,12 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
         .map((r) => ({ id: r.dataset.id ?? "", name: "", color: "" }));
       row.dataset.id = uniqueGroupId(others, nameInput.value.trim());
       delete row.dataset.auto;
-      for (const sel of settingsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
+      for (const sel of actionsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
         const opt = [...sel.options].find((o) => o.value === oldId);
         if (opt) opt.value = row.dataset.id ?? "";
       }
     }
-    for (const sel of settingsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
+    for (const sel of actionsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
       const opt = [...sel.options].find((o) => o.value === row.dataset.id);
       if (opt) opt.textContent = nameInput.value.trim();
     }
@@ -810,6 +1148,11 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
       closeGroupPickers(picker);
       picker.hidden = false;
       swatch.setAttribute("aria-expanded", "true");
+      refreshGp();
+      const match = gpItems.findIndex(
+        (it) => it.dataset.color === hex.value.trim().toLowerCase(),
+      );
+      focusGp(match >= 0 ? match : 0);
     } else {
       picker.hidden = true;
       swatch.setAttribute("aria-expanded", "false");
@@ -821,6 +1164,7 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
     if (!item) return;
     hex.value = item.dataset.color ?? "";
     refreshGroupRow(row);
+    refreshGp();
     picker.hidden = true;
     swatch.setAttribute("aria-expanded", "false");
     swatch.focus();
@@ -829,13 +1173,14 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
   hex.addEventListener("input", () => {
     row.classList.remove("invalid");
     refreshGroupRow(row);
+    refreshGp();
   });
 
   del.addEventListener("click", () => {
     closeGroupPickers();
     const id = row.dataset.id;
     row.remove();
-    for (const sel of settingsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
+    for (const sel of actionsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
       const opt = [...sel.options].find((o) => o.value === id);
       if (opt) opt.remove();
     }
@@ -877,13 +1222,15 @@ function rebuildGroupOptions(sel: HTMLSelectElement): void {
 
 /** The groups block at the top of the settings list (scrolls with actions). */
 function rebuildGroupsEditor(): void {
-  const block = document.createElement("div");
+  const block = document.createElement("section");
   block.className = "settings-groups";
+  block.setAttribute("aria-labelledby", "settings-groups-heading");
 
   const header = document.createElement("div");
   header.className = "settings-groups-header";
-  const title = document.createElement("span");
+  const title = document.createElement("h2");
   title.className = "settings-groups-title";
+  title.id = "settings-groups-heading";
   title.textContent = t(currentLanguage, "groupsLabel");
   const add = document.createElement("button");
   add.type = "button";
@@ -896,13 +1243,13 @@ function rebuildGroupsEditor(): void {
   for (const g of groups) list.appendChild(buildGroupRow(g.id, g.name, g.color));
 
   block.append(header, list);
-  settingsRows.prepend(block);
+  actionsRows.prepend(block);
 
   add.addEventListener("click", () => {
     const id = uniqueGroupId(collectGroupsFromRows(), "");
     const row = buildGroupRow(id, "", GROUP_PALETTE[0], true);
     list.appendChild(row);
-    for (const sel of settingsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
+    for (const sel of actionsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
       rebuildGroupOptions(sel);
     }
     row.querySelector<HTMLInputElement>(".g-name")?.focus();
@@ -911,8 +1258,8 @@ function rebuildGroupsEditor(): void {
 
 function localizeGroupsEditor(): void {
   const L = currentLanguage;
-  const title = settingsRows.querySelector<HTMLElement>(".settings-groups-title");
-  const add = settingsRows.querySelector<HTMLButtonElement>(".g-add");
+  const title = actionsRows.querySelector<HTMLElement>(".settings-groups-title");
+  const add = actionsRows.querySelector<HTMLButtonElement>(".g-add");
   if (title) title.textContent = t(L, "groupsLabel");
   if (add) add.textContent = t(L, "addGroup");
   for (const row of groupRows()) localizeGroupRow(row);
@@ -922,6 +1269,7 @@ function buildSettingsRow(a: Action): HTMLElement {
   const L = currentLanguage;
   const row = document.createElement("div");
   row.className = "settings-row";
+  row.setAttribute("role", "group");
 
   const top = document.createElement("div");
   top.className = "settings-row-top";
@@ -952,7 +1300,10 @@ function buildSettingsRow(a: Action): HTMLElement {
     t(L, "deleteAction", { name: a.name || t(L, "namePlaceholder") }),
   );
   del.textContent = "\u2715";
-  del.addEventListener("click", () => row.remove());
+  del.addEventListener("click", () => {
+    row.remove();
+    afterActionsChanged();
+  });
 
   const value = document.createElement("input");
   value.type = "text";
@@ -1020,6 +1371,7 @@ function localizeSettingsRow(row: HTMLElement): void {
   const value = row.querySelector<HTMLInputElement>(".s-value")!;
   const browser = row.querySelector<HTMLInputElement>(".s-browser")!;
   const del = row.querySelector<HTMLButtonElement>(".s-del")!;
+  row.setAttribute("aria-label", name.value.trim() || t(L, "namePlaceholder"));
   name.placeholder = t(L, "namePlaceholder");
   name.setAttribute("aria-label", t(L, "namePlaceholder"));
   const kind = row.querySelector<HTMLSelectElement>(".s-kind");
@@ -1055,7 +1407,7 @@ function localizeSettingsRow(row: HTMLElement): void {
 function collectSettingsActions(): Action[] {
   const saved = collectGroupsFromRows();
   const out: Action[] = [];
-  for (const row of settingsRows.querySelectorAll<HTMLElement>(".settings-row")) {
+  for (const row of actionsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     const name = row.querySelector<HTMLInputElement>(".s-name")!.value.trim();
     const kind = row.querySelector<HTMLSelectElement>(".s-kind")!.value as Action["kind"];
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
@@ -1071,9 +1423,31 @@ function collectSettingsActions(): Action[] {
 
 async function saveSettings(): Promise<void> {
   const language = langDraft ?? savedLanguage;
+  settingsError.textContent = "";
+  settingsSave.disabled = true;
+  try {
+    if (settingsAutostart.checked !== autostartAtOpen) {
+      if (settingsAutostart.checked) await enable();
+      else await disable();
+      autostartAtOpen = settingsAutostart.checked;
+    }
+    await invoke("save_config", {
+      actions,
+      groups,
+      language: language === "system" ? null : language,
+      magnify: settingsMagnify.checked,
+    });
+    closeSettings();
+  } catch (err) {
+    settingsError.textContent = t(currentLanguage, "saveError", { msg: String(err) });
+    settingsSave.disabled = false;
+  }
+}
+
+async function saveActions(): Promise<void> {
   let invalid = false;
   let groupError = false;
-  for (const row of settingsRows.querySelectorAll<HTMLElement>(".settings-row")) {
+  for (const row of actionsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     const name = row.querySelector<HTMLInputElement>(".s-name")!.value.trim();
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
     const bad = name === "" || value === "";
@@ -1087,26 +1461,26 @@ async function saveSettings(): Promise<void> {
     if (bad) groupError = true;
   }
   if (groupError) {
-    settingsError.textContent = t(currentLanguage, "saveGroupsValidationError");
+    actionsError.textContent = t(currentLanguage, "saveGroupsValidationError");
     return;
   }
   if (invalid) {
-    settingsError.textContent = t(currentLanguage, "saveValidationError");
+    actionsError.textContent = t(currentLanguage, "saveValidationError");
     return;
   }
-  settingsError.textContent = "";
-  settingsSave.disabled = true;
+  actionsError.textContent = "";
+  actionsSave.disabled = true;
   try {
     await invoke("save_config", {
       actions: collectSettingsActions(),
       groups: collectGroupsFromRows(),
-      language: language === "system" ? null : language,
-      magnify: settingsMagnify.checked,
+      language: savedLanguage === "system" ? null : savedLanguage,
+      magnify: magnifyEnabled,
     });
-    closeSettings();
+    closeActions();
   } catch (err) {
-    settingsError.textContent = t(currentLanguage, "saveError", { msg: String(err) });
-    settingsSave.disabled = false;
+    actionsError.textContent = t(currentLanguage, "saveError", { msg: String(err) });
+    actionsSave.disabled = false;
   }
 }
 
@@ -1133,7 +1507,7 @@ async function init(): Promise<void> {
       input.focus();
     }),
     listen("overlay-close", () => {
-      closeSettings();
+      closePanels();
       overlay.close();
       root.classList.remove("open");
       ensureLoop();
@@ -1144,7 +1518,7 @@ async function init(): Promise<void> {
       savedLanguage = (event.payload.language ?? "system") as StoredLanguage;
       magnifyEnabled = event.payload.magnify;
       applyLanguage();
-      if (settingsOpen) rebuildSettingsRows();
+      if (actionsOpen) rebuildActionsRows();
       else refilter();
     }),
   ]);

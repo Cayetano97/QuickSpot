@@ -59,14 +59,15 @@ Inside the overlay:
   stagger, focus feedback, and reduced-motion support without chip collisions.
 - **Three action kinds** — `url` (system default or a custom browser),
   `command` (through the platform shell), `app` (binary path or macOS
-  bundle id). The settings panel adapts the input field to the kind and,
+  bundle id). The actions panel adapts the input field to the kind and,
   for `app`, can browse your installed applications.
-- **Unlimited actions** — add as many actions as you like from Settings;
-  the overlay shows the first 8 matches for the current query.
-- **Grouped, colored actions** — create small groups of actions in Settings,
-  give each group a color, and the group's chips pick up the color as an
-  accent (border, icon and fill). A curated palette tuned for the dark disc
-  plus a validated custom hex keep every color readable.
+- **Unlimited actions** — add as many actions as you like from the actions
+  panel (plus button next to the gear); the overlay shows the first 8
+  matches for the current query.
+- **Grouped, colored actions** — create small groups of actions in the
+  actions panel, give each group a color, and the group's chips pick up
+  the color as an accent (border, icon and fill). A curated palette tuned
+  for the dark disc plus a validated custom hex keep every color readable.
 - **Live filtering** — case-insensitive substring, config order preserved.
 - **English & Spanish UI** — follows the system language by default; override
   it from Settings (gear button), persisted in the config file.
@@ -124,7 +125,7 @@ unknown `kind`) are skipped.
 | `browser` | Optional: custom browser executable for URLs |
 | `hint` | Optional: reserved for future use; ignored in v1 |
 | `group` | Optional: id of the group this action belongs to |
-| `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The settings panel manages groups and colors (curated palette plus a validated custom hex) |
+| `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The actions panel manages groups and colors (curated palette plus a validated custom hex) |
 | `language` | Optional, top-level: `"system"`, `"en"`, or `"es"`. Missing = OS language; if the OS language isn't Spanish, English is used |
 
 ## Project layout
