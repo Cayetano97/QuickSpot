@@ -33,6 +33,7 @@
 input,
 select,
 textarea {
+  color-scheme: dark;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -87,11 +88,10 @@ button {
   width: 520px;
   height: 520px;
   border-radius: 260px;
-  background: radial-gradient(circle at 50% 42%, #19191c 0%, var(--disc) 68%);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.07),
-    0 0 44px rgba(0, 0, 0, 0.62),
-    inset 0 0 1px rgba(255, 255, 255, 0.04);
+  clip-path: circle(50% at 50% 50%);
+  /* The disc is intentionally flat; only its entrance opacity is animated. */
+  background: var(--disc);
+  box-shadow: none;
   opacity: 0;
 }
 
