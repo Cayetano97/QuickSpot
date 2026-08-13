@@ -89,12 +89,21 @@
       <form id="actions" role="dialog" aria-modal="true" aria-label="Actions" aria-hidden="true">
         <div id="actions-header">
           <span id="actions-title">Actions</span>
+          <button id="actions-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        </div>
+        <p id="actions-description" class="sr-only"></p>
+        <div id="actions-tabs" role="tablist" aria-orientation="horizontal" aria-label="Action editor sections">
+          <button id="actions-tab" type="button" role="tab" aria-controls="actions-panel" aria-selected="true" tabindex="0">Actions</button>
+          <button id="groups-tab" type="button" role="tab" aria-controls="groups-panel" aria-selected="false" tabindex="-1">Groups</button>
         </div>
         <div id="actions-rows"></div>
         <div id="actions-footer">
           <span id="actions-error" role="alert" aria-live="assertive"></span>
           <button id="actions-save" type="submit">Save</button>
         </div>
+        <span id="actions-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
       </form>
     </main>
     <script type="module" src="/src/main.ts"></script>

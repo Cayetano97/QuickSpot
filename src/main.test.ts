@@ -115,13 +115,19 @@ function installDom(): void {
       <form id="actions" role="dialog" aria-modal="true" aria-hidden="true">
         <div id="actions-header">
           <span id="actions-title">Actions</span>
-
+          <button id="actions-close" type="button"></button>
+        </div>
+        <p id="actions-description"></p>
+        <div id="actions-tabs" role="tablist" aria-orientation="horizontal" aria-label="Action editor sections">
+          <button id="actions-tab" type="button" role="tab" aria-controls="actions-panel" aria-selected="true" tabindex="0">Actions</button>
+          <button id="groups-tab" type="button" role="tab" aria-controls="groups-panel" aria-selected="false" tabindex="-1">Groups</button>
         </div>
         <div id="actions-rows"></div>
         <div id="actions-footer">
           <span id="actions-error"></span>
           <button id="actions-save" type="submit">Save</button>
         </div>
+        <span id="actions-status" role="status" aria-live="polite" aria-atomic="true"></span>
       </form>
     </main>`;
 }
@@ -480,6 +486,31 @@ describe("actions panel", () => {
     expect(document.querySelector("#actions-title")!.textContent).toBe("Actions");
   });
 
+  it("opens on Actions and exposes the two editor tabs with one panel at a time", async () => {
+    await openOverlay();
+    openActions();
+    const actionsTab = document.querySelector<HTMLButtonElement>("#actions-tab")!;
+    const groupsTab = document.querySelector<HTMLButtonElement>("#groups-tab")!;
+    expect(actionsTab.getAttribute("aria-selected")).toBe("true");
+    expect(groupsTab.getAttribute("aria-selected")).toBe("false");
+    expect((document.querySelector("#actions-panel") as HTMLElement).hidden).toBe(false);
+    expect((document.querySelector("#groups-panel") as HTMLElement).hidden).toBe(true);
+    expect(document.querySelector("#actions-panel")!.getAttribute("aria-hidden")).toBe("false");
+    expect(document.querySelector("#groups-panel")!.getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector("#actions-rows")!.firstElementChild?.id).toBe("actions-panel");
+
+    groupsTab.click();
+    expect(actionsTab.getAttribute("aria-selected")).toBe("false");
+    expect(groupsTab.getAttribute("aria-selected")).toBe("true");
+    expect((document.querySelector("#actions-panel") as HTMLElement).hidden).toBe(true);
+    expect((document.querySelector("#groups-panel") as HTMLElement).hidden).toBe(false);
+    expect(document.querySelector("#actions-panel")!.getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector("#groups-panel")!.getAttribute("aria-hidden")).toBe("false");
+    key(groupsTab, "ArrowLeft");
+    expect(document.activeElement).toBe(actionsTab);
+    expect(actionsTab.getAttribute("aria-selected")).toBe("true");
+  });
+
   it("settings and actions are mutually exclusive", async () => {
     await openOverlay();
     document.querySelector<HTMLButtonElement>("#hub")!.click();
@@ -504,6 +535,24 @@ describe("actions panel", () => {
     expect(invoke).not.toHaveBeenCalledWith("save_config", expect.anything());
   });
 
+  it("moves validation focus to the tab containing the first invalid section", async () => {
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-add")!.click();
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    expect(document.querySelector<HTMLButtonElement>("#actions-tab")!.getAttribute("aria-selected")).toBe(
+      "true",
+    );
+
+    const deletes = document.querySelectorAll<HTMLButtonElement>(".s-del");
+    deletes[deletes.length - 1].click();
+    document.querySelector<HTMLButtonElement>(".g-add")!.click();
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    expect(document.querySelector<HTMLButtonElement>("#groups-tab")!.getAttribute("aria-selected")).toBe(
+      "true",
+    );
+  });
+
   it("Save sends the edited actions and groups and closes the panel", async () => {
     await openOverlay();
     openActions();
@@ -525,6 +574,61 @@ describe("actions panel", () => {
     expect(document.querySelector("#actions")!.classList.contains("open")).toBe(false);
   });
 
+  it("reorders rows with explicit buttons and persists the DOM order", async () => {
+    await openOverlay();
+    openActions();
+    const rows = [...document.querySelectorAll<HTMLElement>(".settings-row")];
+    const up = rows[2].querySelector<HTMLButtonElement>(".s-move-up")!;
+    up.focus();
+    up.click();
+    expect(
+      [...document.querySelectorAll<HTMLInputElement>(".settings-row .s-name")].map(
+        (input) => input.value,
+      ),
+    ).toEqual(["Vercel", "Native SDK docs", "GitHub", "Reload (use tray)"]);
+    expect(document.querySelector("#actions-status")!.textContent).toBe(
+      "Native SDK docs moved to position 2 of 4",
+    );
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({
+        actions: [
+          ACTIONS[0],
+          ACTIONS[2],
+          ACTIONS[1],
+          ACTIONS[3],
+        ],
+      }),
+    );
+  });
+
+  it("disables movement buttons at the list boundaries and keeps focusable controls labeled", async () => {
+    await openOverlay();
+    openActions();
+    const rows = [...document.querySelectorAll<HTMLElement>(".settings-row")];
+    const firstUp = rows[0].querySelector<HTMLButtonElement>(".s-move-up")!;
+    const lastDown = rows[3].querySelector<HTMLButtonElement>(".s-move-down")!;
+    expect(firstUp.disabled).toBe(true);
+    expect(lastDown.disabled).toBe(true);
+    expect(firstUp.getAttribute("aria-label")).toBe("Move Vercel up");
+    expect(lastDown.getAttribute("aria-label")).toBe("Move Reload (use tray) down");
+    rows[0].querySelector<HTMLButtonElement>(".s-move-down")!.click();
+    expect(
+      [...document.querySelectorAll<HTMLInputElement>(".settings-row .s-name")].map(
+        (input) => input.value,
+      ),
+    ).toEqual(["GitHub", "Vercel", "Native SDK docs", "Reload (use tray)"]);
+  });
+
+  it("closes the actions panel with the visible close button", async () => {
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-close")!.click();
+    expect(document.querySelector("#actions")!.classList.contains("open")).toBe(false);
+  });
+
   it("shows the action count and an empty hint when there are no actions", async () => {
     await mount({ actions: [] });
     await openOverlay();
@@ -538,6 +642,98 @@ describe("actions panel", () => {
       (document.querySelector(".settings-actions-empty") as HTMLElement).hidden,
     ).toBe(true);
     expect(document.querySelector(".settings-actions-count")!.textContent).toBe("1");
+  });
+
+  it("keeps the browser field out of URL rows and orders value, browse, group", async () => {
+    await mount({
+      actions: [
+        { name: "Code", kind: "app", value: "" },
+        { name: "Google", kind: "url", value: "https://google.com" },
+        { name: "Echo", kind: "command", value: "echo hi" },
+      ],
+    });
+    await openOverlay();
+    openActions();
+    const rows = [...document.querySelectorAll<HTMLElement>(".settings-row")];
+    expect(rows[1].querySelector(".s-browser")).toBeNull();
+    expect(rows[2].querySelector(".s-browser")).toBeNull();
+    const rowOrder = (row: HTMLElement) =>
+      [...row.querySelectorAll<HTMLElement>(".s-value-row > *")].map((el) => ({
+        cls: el.className,
+        hidden: (el as HTMLElement).hidden,
+      }));
+    expect(rowOrder(rows[1])).toEqual([
+      { cls: "action-field s-value-field", hidden: false },
+      { cls: "s-app-browse", hidden: true },
+      { cls: "action-field s-group-field", hidden: false },
+    ]);
+    expect(rowOrder(rows[2])).toEqual([
+      { cls: "action-field s-value-field", hidden: false },
+      { cls: "s-app-browse", hidden: true },
+      { cls: "action-field s-group-field", hidden: false },
+    ]);
+    expect(rowOrder(rows[0])).toEqual([
+      { cls: "action-field s-value-field", hidden: false },
+      { cls: "s-app-browse", hidden: false },
+      { cls: "action-field s-group-field", hidden: false },
+    ]);
+    for (const row of rows) {
+      expect(
+        row.querySelector<HTMLElement>(".s-value-row")!.lastElementChild!.classList.contains(
+          "s-group-field",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("switching the kind to url hides the browse button and keeps the group rightmost", async () => {
+    await mount({
+      actions: [{ name: "Code", kind: "app", value: "/Applications/Code.app" }],
+    });
+    await openOverlay();
+    openActions();
+    const kind = document.querySelector<HTMLSelectElement>(".s-kind")!;
+    const browse = document.querySelector<HTMLButtonElement>(".s-app-browse")!;
+    expect(browse.hidden).toBe(false);
+    kind.value = "url";
+    kind.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(browse.hidden).toBe(true);
+    expect(
+      document
+        .querySelector<HTMLElement>(".s-value-row")!
+        .lastElementChild!.classList.contains("s-group-field"),
+    ).toBe(true);
+  });
+
+  it("round-trips a config-set browser override without showing it", async () => {
+    await mount({
+      actions: [
+        {
+          name: "Arc",
+          kind: "url",
+          value: "https://arc.net",
+          browser: "/Applications/Arc.app/Contents/MacOS/Arc",
+        },
+      ],
+    });
+    await openOverlay();
+    openActions();
+    expect(document.querySelector(".s-browser")).toBeNull();
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({
+        actions: [
+          {
+            name: "Arc",
+            kind: "url",
+            value: "https://arc.net",
+            browser: "/Applications/Arc.app/Contents/MacOS/Arc",
+          },
+        ],
+      }),
+    );
   });
 });
 
@@ -631,6 +827,10 @@ describe("groups", () => {
       (el) => el.value,
     );
     expect(names).toEqual(["Work", "Dev"]);
+    expect(document.querySelector(".g-name-label")!.textContent).toBe("Name");
+    expect(document.querySelector(".g-color-label")!.textContent).toBe("Color");
+    expect(document.querySelector(".s-name-label")!.textContent).toBe("Name");
+    expect(document.querySelector(".s-value-label")!.textContent).toBe("Value");
     const sel = document.querySelector<HTMLSelectElement>(".s-group")!;
     expect([...sel.options].map((o) => o.value)).toEqual(["", "work", "dev"]);
     expect(sel.value).toBe("work");

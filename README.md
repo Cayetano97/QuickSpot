@@ -57,13 +57,16 @@ Inside the overlay:
   it can never be lost off-screen, and the next open re-centers it.
 - **Crisp, accessible motion** — a fast 220 ms open, 150 ms close, restrained
   stagger, focus feedback, and reduced-motion support without chip collisions.
-- **Three action kinds** — `url` (system default or a custom browser),
-  `command` (through the platform shell), `app` (binary path or macOS
-  bundle id). The actions panel adapts the input field to the kind and,
-  for `app`, can browse your installed applications.
+- **Three action kinds** — `url` (system default, or a custom browser
+  executable from the config file), `command` (through the platform shell),
+  `app` (binary path or macOS bundle id). The actions panel adapts the value
+  field to the kind and, for `app`, can browse your installed applications.
 - **Unlimited actions** — add as many actions as you like from the actions
   panel (plus button next to the gear); the overlay shows the first 8
   matches for the current query.
+- **Reorderable actions** — use the Up / Down buttons in the actions panel. The
+  order is saved with the actions array and controls both chip order and search
+  ranking.
 - **Grouped, colored actions** — create small groups of actions in the
   actions panel, give each group a color, and the group's chips pick up
   the color as an accent (border, icon and fill). A curated palette tuned
@@ -122,7 +125,7 @@ unknown `kind`) are skipped.
 | `name` | Display label; matched case-insensitively by the filter |
 | `kind` | `"url"`, `"command"`, or `"app"` |
 | `value` | URL, shell command, or app path / bundle id |
-| `browser` | Optional: custom browser executable for URLs |
+| `browser` | Optional: custom browser executable for URLs. Set in the config file (not edited in the actions panel; a value there is preserved on save) |
 | `hint` | Optional: reserved for future use; ignored in v1 |
 | `group` | Optional: id of the group this action belongs to |
 | `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The actions panel manages groups and colors (curated palette plus a validated custom hex) |

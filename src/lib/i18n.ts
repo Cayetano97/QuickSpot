@@ -28,7 +28,6 @@ interface Dict {
   valuePlaceholderUrl: string;
   valuePlaceholderCommand: string;
   valuePlaceholderApp: string;
-  browserPlaceholder: string;
   browseApps: string;
   appSearchPlaceholder: string;
   noAppsFound: string;
@@ -48,6 +47,21 @@ interface Dict {
   customColorPlaceholder: string;
   colorInvalid: string;
   colorTooDark: string;
+  close: string;
+  actionsDescription: string;
+  actionNameLabel: string;
+  actionTypeLabel: string;
+  actionValueLabel: string;
+  actionGroupLabel: string;
+  groupNameLabel: string;
+  groupColorLabel: string;
+  reorderHint: string;
+  moveActionUp: string;
+  moveActionDown: string;
+  actionMoved: string;
+  tabsAria: string;
+  actionsTab: string;
+  groupsTab: string;
 }
 
 const en: Dict = {
@@ -77,7 +91,6 @@ const en: Dict = {
   valuePlaceholderUrl: "https://example.com",
   valuePlaceholderCommand: "shell command",
   valuePlaceholderApp: "app path or bundle id",
-  browserPlaceholder: "Browser executable (url only)",
   browseApps: "Browse apps\u2026",
   appSearchPlaceholder: "Search installed apps\u2026",
   noAppsFound: "No apps found",
@@ -97,6 +110,21 @@ const en: Dict = {
   customColorPlaceholder: "#rrggbb",
   colorInvalid: "Enter a 6-digit hex color",
   colorTooDark: "Too dark for the dark theme",
+  close: "Close",
+  actionsDescription: "Manage groups and actions. Use the Up and Down buttons to set action order.",
+  actionNameLabel: "Name",
+  actionTypeLabel: "Type",
+  actionValueLabel: "Value",
+  actionGroupLabel: "Group",
+  groupNameLabel: "Name",
+  groupColorLabel: "Color",
+  reorderHint: "Use the Up and Down buttons to set the launcher order.",
+  moveActionUp: "Move {name} up",
+  moveActionDown: "Move {name} down",
+  actionMoved: "{name} moved to position {position} of {count}",
+  tabsAria: "Action editor sections",
+  actionsTab: "Actions",
+  groupsTab: "Groups",
 };
 
 const es: Dict = {
@@ -126,7 +154,6 @@ const es: Dict = {
   valuePlaceholderUrl: "https://ejemplo.com",
   valuePlaceholderCommand: "comando del shell",
   valuePlaceholderApp: "ruta o id de la app",
-  browserPlaceholder: "Ejecutable del navegador (solo url)",
   browseApps: "Buscar apps\u2026",
   appSearchPlaceholder: "Buscar apps instaladas\u2026",
   noAppsFound: "No se encontraron apps",
@@ -146,6 +173,21 @@ const es: Dict = {
   customColorPlaceholder: "#rrggbb",
   colorInvalid: "Introduce un color hex de 6 dígitos",
   colorTooDark: "Demasiado oscuro para el tema oscuro",
+  close: "Cerrar",
+  actionsDescription: "Gestiona grupos y acciones. Usa los botones Arriba y Abajo para ordenar las acciones.",
+  actionNameLabel: "Nombre",
+  actionTypeLabel: "Tipo",
+  actionValueLabel: "Valor",
+  actionGroupLabel: "Grupo",
+  groupNameLabel: "Nombre",
+  groupColorLabel: "Color",
+  reorderHint: "Usa los botones Arriba y Abajo para definir el orden del lanzador.",
+  moveActionUp: "Subir {name}",
+  moveActionDown: "Bajar {name}",
+  actionMoved: "{name} movida a la posición {position} de {count}",
+  tabsAria: "Secciones del editor de acciones",
+  actionsTab: "Acciones",
+  groupsTab: "Grupos",
 };
 
 export type DictKey = keyof typeof en;
