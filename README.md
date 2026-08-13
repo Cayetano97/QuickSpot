@@ -48,35 +48,14 @@ Inside the overlay:
 
 ## Features
 
-- **Global hotkey** registered through the OS (Alt+Space on Windows,
-  Option+Space via Carbon `RegisterEventHotKey` on macOS, X11 on Linux) —
-  works from any app.
-- **Cursor-aware placement** — re-centers on the work area of the monitor
-  under the cursor on every open.
-- **Drag grip** — move the overlay anywhere with the pill at its top;
-  it can never be lost off-screen, and the next open re-centers it.
-- **Crisp, accessible motion** — a fast 220 ms open, 150 ms close, restrained
-  stagger, focus feedback, and reduced-motion support without chip collisions.
-- **Three action kinds** — `url` (system default, or a custom browser
-  executable from the config file), `command` (through the platform shell),
-  `app` (binary path or macOS bundle id). The actions panel adapts the value
-  field to the kind and, for `app`, can browse your installed applications.
-- **Unlimited actions** — add as many actions as you like from the actions
-  panel (plus button next to the gear); the overlay shows the first 8
-  matches for the current query.
-- **Reorderable actions** — use the Up / Down buttons in the actions panel. The
-  order is saved with the actions array and controls both chip order and search
-  ranking.
-- **Grouped, colored actions** — create small groups of actions in the
-  actions panel, give each group a color, and the group's chips pick up
-  the color as an accent (border, icon and fill). A curated palette tuned
-  for the dark disc plus a validated custom hex keep every color readable.
-- **Live filtering** — case-insensitive substring, config order preserved.
-- **English & Spanish UI** — follows the system language by default; override
-  it from Settings (gear button), persisted in the config file.
-- **Tray menu** — Show / Reload config / Quit. Reload picks up config
-  edits without restarting.
-- **Single instance** — a second launch just brings the overlay back.
+- **Global hotkey** — open from anywhere: `Alt+Space`, `Option+Space`, `Super+Space`
+- **Drag to move** — grab the top pill; it never gets lost off-screen
+- **3 action kinds** — `url`, `command`, or `app`
+- **Unlimited actions** — add as many as you want; shows the first 8 matches
+- **Reorder** — Up/Down buttons in the panel; order also sets search ranking
+- **Colored groups** — group actions and give each group a color
+- **Live filtering** — type to filter instantly
+- **Tray menu** — Show / Reload config / Quit
 
 ## Getting started
 
