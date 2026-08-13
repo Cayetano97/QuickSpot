@@ -3,6 +3,7 @@ import {
   backspaceCodepoint,
   capUtf8Bytes,
   filterActions,
+  groupActions,
   hexLuminance,
   isHexColor,
   isReadableOnDark,
@@ -43,6 +44,76 @@ describe("filterActions", () => {
 
   it("returns an empty list when nothing matches", () => {
     expect(filterActions(actions, "zzz")).toEqual([]);
+  });
+});
+
+describe("groupActions", () => {
+  const A = (name: string, group?: string): Action => ({
+    name,
+    kind: "url",
+    value: `https://${name}.dev`,
+    group,
+  });
+  const names = (src: Action[]): string[] => groupActions(src).map((a) => a.name);
+
+  it("pulls same-group actions together, keeping group first-appearance order", () => {
+    expect(names([A("a", "work"), A("b", "dev"), A("c"), A("d", "work"), A("e"), A("f", "dev")])).toEqual([
+      "a",
+      "d",
+      "b",
+      "f",
+      "c",
+      "e",
+    ]);
+  });
+
+  it("keeps ungrouped actions in their relative order and never splits them", () => {
+    expect(names([A("u1"), A("a", "work"), A("u2"), A("b", "work"), A("u3")])).toEqual([
+      "u1",
+      "a",
+      "b",
+      "u2",
+      "u3",
+    ]);
+    expect(names([A("a", "work"), A("u1"), A("b", "work"), A("u2")])).toEqual([
+      "a",
+      "b",
+      "u1",
+      "u2",
+    ]);
+  });
+
+  it("is stable within a group", () => {
+    expect(names([A("a", "work"), A("u1"), A("b", "work"), A("u2"), A("c", "work")])).toEqual([
+      "a",
+      "b",
+      "c",
+      "u1",
+      "u2",
+    ]);
+  });
+
+  it("keeps a list that is already grouped untouched", () => {
+    const src = [A("a", "work"), A("b", "work"), A("c"), A("d", "dev")];
+    expect(names(src)).toEqual(["a", "b", "c", "d"]);
+    expect(names([A("a"), A("b")])).toEqual(["a", "b"]);
+  });
+
+  it("groups by the raw group id even when it has no Group entry", () => {
+    expect(names([A("a", "ghost"), A("u"), A("b", "ghost")])).toEqual(["a", "b", "u"]);
+  });
+
+  it("is a pure function: returns a new array and does not mutate the input", () => {
+    const src = [A("a", "work"), A("b", "dev"), A("c")];
+    const copy = [...src];
+    const out = groupActions(src);
+    expect(out).not.toBe(src);
+    expect(src).toEqual(copy);
+  });
+
+  it("handles empty and single-element lists", () => {
+    expect(groupActions([])).toEqual([]);
+    expect(names([A("only")])).toEqual(["only"]);
   });
 });
 

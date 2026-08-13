@@ -56,6 +56,8 @@ interface Dict {
   groupNameLabel: string;
   groupColorLabel: string;
   reorderHint: string;
+  groupActions: string;
+  actionsGrouped: string;
   moveActionUp: string;
   moveActionDown: string;
   actionMoved: string;
@@ -119,6 +121,8 @@ const en: Dict = {
   groupNameLabel: "Name",
   groupColorLabel: "Color",
   reorderHint: "Use the Up and Down buttons to set the launcher order.",
+  groupActions: "Group actions",
+  actionsGrouped: "Actions grouped by group",
   moveActionUp: "Move {name} up",
   moveActionDown: "Move {name} down",
   actionMoved: "{name} moved to position {position} of {count}",
@@ -182,6 +186,8 @@ const es: Dict = {
   groupNameLabel: "Nombre",
   groupColorLabel: "Color",
   reorderHint: "Usa los botones Arriba y Abajo para definir el orden del lanzador.",
+  groupActions: "Agrupar acciones",
+  actionsGrouped: "Acciones agrupadas por grupo",
   moveActionUp: "Subir {name}",
   moveActionDown: "Bajar {name}",
   actionMoved: "{name} movida a la posición {position} de {count}",

@@ -144,6 +144,7 @@ button {
 #minimize:focus-visible,
 .chip:focus-visible,
 #actions-add:focus-visible,
+#actions-group:focus-visible,
 #actions-close:focus-visible,
 #settings-save:focus-visible,
 #actions-save:focus-visible,
@@ -1255,7 +1256,8 @@ button {
   text-align: center;
 }
 
-.settings-actions #actions-add {
+.settings-actions #actions-add,
+.settings-actions #actions-group {
   flex: 0 0 auto;
   min-height: var(--editor-control-h);
   padding: 0 16px;
@@ -1267,12 +1269,14 @@ button {
   transition: transform var(--duration-fast) var(--ease-out), background var(--duration-fast) ease;
 }
 
-.settings-actions #actions-add:active {
+.settings-actions #actions-add:active,
+.settings-actions #actions-group:active {
   transform: scale(0.96);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .settings-actions #actions-add:hover {
+  .settings-actions #actions-add:hover,
+  .settings-actions #actions-group:hover {
     background: var(--ghost-fill-active);
   }
 }
@@ -1588,6 +1592,7 @@ button {
   #add .plus,
   #overlay.settled .chip,
   #actions-add,
+  #actions-group,
   #settings-save,
   #actions-save,
   .settings-row,

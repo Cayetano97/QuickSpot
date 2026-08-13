@@ -966,3 +966,117 @@ describe("groups", () => {
     );
   });
 });
+
+describe("group actions button", () => {
+  const GROUPS: Group[] = [
+    { id: "work", name: "Work", color: "#5e9eff" },
+    { id: "dev", name: "Dev", color: "#30d158" },
+  ];
+  const INTERLEAVED: Action[] = [
+    { name: "Slack", kind: "url", value: "https://slack.com", group: "work" },
+    { name: "GitHub", kind: "url", value: "https://github.com", group: "dev" },
+    { name: "Google", kind: "url", value: "https://google.com" },
+    { name: "Notion", kind: "url", value: "https://notion.com", group: "work" },
+    { name: "Linear", kind: "url", value: "https://linear.app", group: "dev" },
+  ];
+  const rowNames = (): string[] =>
+    [...document.querySelectorAll<HTMLInputElement>(".settings-row .s-name")].map(
+      (input) => input.value,
+    );
+  const rowGroups = (): string[] =>
+    [...document.querySelectorAll<HTMLSelectElement>(".settings-row .s-group")].map(
+      (sel) => sel.value,
+    );
+
+  it("groups together the actions of each group with one click", async () => {
+    await mount({ actions: INTERLEAVED, groups: GROUPS });
+    await openOverlay();
+    openActions();
+    expect(rowNames()).toEqual(["Slack", "GitHub", "Google", "Notion", "Linear"]);
+    document.querySelector<HTMLButtonElement>("#actions-group")!.click();
+    expect(rowNames()).toEqual(["Slack", "Notion", "GitHub", "Linear", "Google"]);
+    expect(rowGroups()).toEqual(["work", "work", "dev", "dev", ""]);
+    expect(document.querySelector("#actions-status")!.textContent).toBe(
+      "Actions grouped by group",
+    );
+  });
+
+  it("moves the row nodes, keeping each action's controls attached", async () => {
+    await mount({ actions: INTERLEAVED, groups: GROUPS });
+    await openOverlay();
+    openActions();
+    const [slack] = [...document.querySelectorAll<HTMLElement>(".settings-row")];
+    document.querySelector<HTMLButtonElement>("#actions-group")!.click();
+    expect(slack.querySelector<HTMLInputElement>(".s-name")!.value).toBe("Slack");
+    expect(slack.querySelector<HTMLSelectElement>(".s-group")!.value).toBe("work");
+    expect(
+      [...document.querySelectorAll<HTMLElement>(".settings-row")][0] === slack,
+    ).toBe(true);
+  });
+
+  it("persists the grouped order when saving", async () => {
+    await mount({ actions: INTERLEAVED, groups: GROUPS });
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-group")!.click();
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({
+        actions: [
+          INTERLEAVED[0],
+          INTERLEAVED[3],
+          INTERLEAVED[1],
+          INTERLEAVED[4],
+          INTERLEAVED[2],
+        ],
+        groups: GROUPS,
+      }),
+    );
+  });
+
+  it("keeps the boundary buttons of the reordered list in sync", async () => {
+    await mount({ actions: INTERLEAVED, groups: GROUPS });
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-group")!.click();
+    const rows = [...document.querySelectorAll<HTMLElement>(".settings-row")];
+    expect(rows[0].querySelector<HTMLButtonElement>(".s-move-up")!.disabled).toBe(true);
+    expect(rows[4].querySelector<HTMLButtonElement>(".s-move-down")!.disabled).toBe(true);
+    expect(rows[1].querySelector<HTMLButtonElement>(".s-move-up")!.disabled).toBe(false);
+  });
+
+  it("is a no-op on lists that are already grouped and leaves the status untouched", async () => {
+    await mount({ actions: INTERLEAVED.slice(0, 3), groups: GROUPS });
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-group")!.click();
+    expect(rowNames()).toEqual(["Slack", "GitHub", "Google"]);
+    expect(document.querySelector("#actions-status")!.textContent).toBe("");
+  });
+
+  it("localizes the button label", async () => {
+    await mount({ actions: INTERLEAVED, groups: GROUPS });
+    await openOverlay();
+    openActions();
+    expect(document.querySelector<HTMLButtonElement>("#actions-group")!.textContent).toBe(
+      "Group actions",
+    );
+    document.querySelector<HTMLButtonElement>("#actions-close")!.click();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const select = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    select.value = "es";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    eventHandlers["config-reloaded"]?.({
+      payload: { actions: INTERLEAVED, groups: GROUPS, language: "es", magnify: true },
+    });
+    await flush();
+    openActions();
+    expect(document.querySelector<HTMLButtonElement>("#actions-group")!.textContent).toBe(
+      "Agrupar acciones",
+    );
+  });
+});

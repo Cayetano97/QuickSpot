@@ -769,11 +769,15 @@ function rebuildActionsRows(): void {
   title.id = "settings-actions-heading";
   const count = document.createElement("span");
   count.className = "settings-actions-count";
+  const group = document.createElement("button");
+  group.type = "button";
+  group.id = "actions-group";
+  group.textContent = t(currentLanguage, "groupActions");
   const add = document.createElement("button");
   add.type = "button";
   add.id = "actions-add";
   add.textContent = t(currentLanguage, "addAction");
-  header.append(title, count, add);
+  header.append(title, count, group, add);
 
   const help = document.createElement("p");
   help.className = "settings-actions-help";
@@ -788,6 +792,11 @@ function rebuildActionsRows(): void {
 
   block.append(header, help, list, hint);
   actionsAdd = add;
+
+  group.addEventListener("click", () => {
+    groupActionRows();
+    group.focus();
+  });
 
   add.addEventListener("click", () => {
     const row = buildSettingsRow({ name: "", kind: "url", value: "" });
@@ -832,6 +841,8 @@ function localizeActionsSection(): void {
   if (hint) hint.textContent = t(L, "noActions");
   const help = actionsRows.querySelector<HTMLElement>(".settings-actions-help");
   if (help) help.textContent = t(L, "reorderHint");
+  const group = actionsRows.querySelector<HTMLElement>("#actions-group");
+  if (group) group.textContent = t(L, "groupActions");
   syncActionsCount();
   syncActionRowMetadata();
 }
@@ -880,6 +891,37 @@ function moveActionRow(row: HTMLElement, delta: -1 | 1): boolean {
   else list.insertBefore(row, target.nextElementSibling);
   syncActionRowMetadata();
   return true;
+}
+
+/** Reorder the draft rows so every action sharing a group is contiguous,
+ * mirroring `groupActions`. The rows carry the pickers and selects, so the
+ * nodes are moved instead of rebuilt. */
+function groupActionRows(): void {
+  const list = actionsRows.querySelector<HTMLElement>(".settings-actions-list");
+  const rows = settingsActionRows();
+  if (!list || rows.length < 2) return;
+  const blockOf = new Map<string, number>();
+  let key = 0;
+  const keys: number[] = [];
+  for (const row of rows) {
+    const group = row.querySelector<HTMLSelectElement>(".s-group")!.value;
+    if (group) {
+      let k = blockOf.get(group);
+      if (k === undefined) {
+        k = key++;
+        blockOf.set(group, k);
+      }
+      keys.push(k);
+    } else {
+      keys.push(key++);
+    }
+  }
+  const indexed = rows.map((row, i) => ({ row, key: keys[i] }));
+  indexed.sort((a, b) => a.key - b.key);
+  if (indexed.every((entry, i) => entry.row === rows[i])) return;
+  for (const { row } of indexed) list.appendChild(row);
+  syncActionRowMetadata();
+  actionsStatus.textContent = t(currentLanguage, "actionsGrouped");
 }
 
 interface InstalledApp {

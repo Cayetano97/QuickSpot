@@ -74,6 +74,36 @@ export function filterActions(actions: readonly Action[], query: string): number
   return out;
 }
 
+/**
+ * Stable grouping by group id: returns the same actions reordered so every
+ * action sharing a group becomes contiguous. Relative order is preserved
+ * within a group, groups keep the order of their first appearance, and
+ * ungrouped actions act as their own singletons (they never cross each
+ * other, and a group block never splits an ungrouped run). Actions with a
+ * group id that has no matching `Group` entry are still grouped by that id.
+ */
+export function groupActions(actions: readonly Action[]): Action[] {
+  const blockOf = new Map<string, number>();
+  let key = 0;
+  const keys: number[] = [];
+  for (const a of actions) {
+    if (a.group) {
+      let k = blockOf.get(a.group);
+      if (k === undefined) {
+        k = key++;
+        blockOf.set(a.group, k);
+      }
+      keys.push(k);
+    } else {
+      keys.push(key++);
+    }
+  }
+  return actions
+    .map((action, i) => ({ action, key: keys[i] }))
+    .sort((x, y) => x.key - y.key)
+    .map(({ action }) => action);
+}
+
 /** Move the selection by delta, wrapping in both directions. A negative
  * `current` means "nothing selected": stepping forward lands on the first
  * item, stepping backward on the last. */
