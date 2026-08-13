@@ -27,7 +27,12 @@
         "visible": false,
         "focus": false,
         "shadow": false,
-        "backgroundColor": [0, 0, 0, 0]
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ]
       }
     ],
     "security": {
@@ -54,7 +59,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "untrusted comment: minisign public key: 8452195C7C619D0\nRWTQGcbHlSFFCBQ7WsnD+MCK68mLVFgbzV7ByI4LFO9jOJ9ajXIEz9FN",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg0NTIxOTVDN0M2MTlEMApSV1RRR2NiSGxTRkZDQlE3V3NuRCtNQ0s2OG1MVkZnYnpWN0J5STRMRk85ak9KOWFqWElFejlGTgo=",
       "endpoints": [
         "https://github.com/Cayetano97/QuickSpot/releases/latest/download/latest.json"
       ],

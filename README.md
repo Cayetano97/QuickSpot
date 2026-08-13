@@ -180,12 +180,15 @@ How it works (all standard Tauri):
 The keys were generated with `tauri signer generate`; the pair lives in
 `~/.tauri/quickspot.key` (private) and `~/.tauri/quickspot.key.pub`
 (public — already embedded in `tauri.conf.json`). The private key is never
-committed. To let CI sign the update bundles, add two repository secrets
+committed. To let CI sign the update bundles, add one repository secret
 (Settings → Secrets and variables → Actions):
 
 - `TAURI_SIGNING_PRIVATE_KEY` — the full contents of `~/.tauri/quickspot.key`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — empty (the key was generated
-  without a password)
+
+That's it: the key was generated without a password, and the workflow's
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD || ''` fallback supplies the empty
+password itself — do **not** create a `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+secret with any value, it would break signing.
 
 If the private key is lost, existing installs can never be updated again —
 back it up somewhere safe.
