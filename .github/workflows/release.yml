@@ -93,7 +93,11 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'QuickSpot v__VERSION__'
           releaseBody: |
-            See the assets to download this version and install.
+            ### Highlights
+
+            - **Self-updates** — a subtle blue button now appears in the launcher when a new version is available. Click it to download, install and relaunch in one go; every update is signed and verified against the bundled key.
+            - **Colored groups** — organize actions into groups and give each one a color that accents its chips (border, icon, fill).
+            - **Redesigned settings & actions panel** — tabbed editor with reorder controls, a dedicated close button, and improved keyboard navigation and screen-reader support.
           # Published (not draft): the in-app updater polls the
           # `releases/latest` endpoint, which only sees published releases.
           releaseDraft: false
