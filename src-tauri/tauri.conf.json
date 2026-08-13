@@ -38,6 +38,7 @@
     "active": true,
     "targets": "all",
     "category": "Utility",
+    "createUpdaterArtifacts": true,
     "macOS": {
       "signingIdentity": "-"
     },
@@ -50,5 +51,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "untrusted comment: minisign public key: 8452195C7C619D0\nRWTQGcbHlSFFCBQ7WsnD+MCK68mLVFgbzV7ByI4LFO9jOJ9ajXIEz9FN",
+      "endpoints": [
+        "https://github.com/Cayetano97/QuickSpot/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "quiet"
+      }
+    }
   }
 }

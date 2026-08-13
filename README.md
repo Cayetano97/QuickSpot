@@ -146,6 +146,55 @@ macOS and Windows — so the platform-specific branches (macOS bundle-id
 routing, the Windows `cmd /c` shell, Linux `.desktop` parsing) are
 exercised on their real platforms.
 
+## Updates
+
+QuickSpot self-updates from GitHub Releases. When a new release is
+published, a subtle blue pill appears at the bottom of the overlay
+(`Update to v0.2.0`); clicking it downloads the new version, installs it
+and relaunches into it.
+
+How it works (all standard Tauri):
+
+- `.github/workflows/release.yml` builds every platform on a `v*` tag push,
+  signs the bundles with a minisign key pair and uploads them to a GitHub
+  release (plus a merged `latest.json` updater manifest via
+  `tauri-action`).
+- The app polls the manifest at
+  `https://github.com/Cayetano97/QuickSpot/releases/latest/download/latest.json`
+  (configured in `src-tauri/tauri.conf.json` → `plugins.updater`); the
+  bundled public key is checked against every artifact's signature before
+  anything is installed.
+- The updater itself is `tauri-plugin-updater` (Rust + JS), with the UI
+  handled in `src/main.ts`.
+
+### Releasing a new version
+
+1. Bump the version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`
+   and `package.json` (all three must match).
+2. Push a tag: `git tag v0.2.0 && git push origin v0.2.0`. The workflow
+   builds, signs, and **publishes** the release; installed apps then offer
+   the update on their next check (on launch or when the overlay opens).
+
+### Signing keys (one-time setup)
+
+The keys were generated with `tauri signer generate`; the pair lives in
+`~/.tauri/quickspot.key` (private) and `~/.tauri/quickspot.key.pub`
+(public — already embedded in `tauri.conf.json`). The private key is never
+committed. To let CI sign the update bundles, add two repository secrets
+(Settings → Secrets and variables → Actions):
+
+- `TAURI_SIGNING_PRIVATE_KEY` — the full contents of `~/.tauri/quickspot.key`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — empty (the key was generated
+  without a password)
+
+If the private key is lost, existing installs can never be updated again —
+back it up somewhere safe.
+
+> **macOS note:** the app is ad-hoc signed (`signingIdentity: "-"`), which
+> works for local/dev installs. For production updates on macOS, a
+> Developer ID certificate is recommended so Gatekeeper trusts the updated
+> bundle.
+
 ## License
 
 [MIT](LICENSE) — © 2026 [Cayetano97](https://github.com/Cayetano97).

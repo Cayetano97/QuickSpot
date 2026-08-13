@@ -23,6 +23,12 @@ const autostart = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/plugin-autostart", () => autostart);
 
+const updater = vi.hoisted(() => ({ check: vi.fn() }));
+vi.mock("@tauri-apps/plugin-updater", () => updater);
+
+const processPlugin = vi.hoisted(() => ({ relaunch: vi.fn() }));
+vi.mock("@tauri-apps/plugin-process", () => processPlugin);
+
 const ACTIONS: Action[] = [
   { name: "Vercel", kind: "url", value: "https://vercel.com" },
   { name: "GitHub", kind: "url", value: "https://github.com" },
@@ -74,6 +80,7 @@ function installDom(): void {
       <div id="run-error" role="alert" aria-live="assertive" aria-hidden="true"></div>
       <input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" />
       <button id="minimize"></button>
+      <button id="update"><span class="update-label"></span></button>
       <div id="grip"></div>
       <form id="settings" role="dialog" aria-modal="true" aria-hidden="true">
         <div id="settings-header">
@@ -159,6 +166,10 @@ async function mount(config?: {
   autostart.disable.mockClear();
   autostart.isEnabled.mockClear();
   autostart.isEnabled.mockResolvedValue(false);
+  updater.check.mockReset();
+  updater.check.mockResolvedValue(null);
+  processPlugin.relaunch.mockReset();
+  processPlugin.relaunch.mockResolvedValue(undefined);
   listen.mockReset();
   listen.mockImplementation((name: string, handler: (event: { payload?: unknown }) => void) => {
     eventHandlers[name] = handler;
@@ -1088,5 +1099,92 @@ describe("group actions button", () => {
     expect(document.querySelector<HTMLButtonElement>("#actions-group")!.textContent).toBe(
       "Agrupar acciones",
     );
+  });
+});
+
+describe("updater", () => {
+  const FAKE_UPDATE = () => ({
+    version: "0.2.0",
+    date: "2026-08-13T00:00:00Z",
+    body: "",
+    downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+  });
+
+  it("stays hidden and out of tab order when no update is available", async () => {
+    await openOverlay();
+    const btn = document.querySelector<HTMLButtonElement>("#update")!;
+    expect(btn.style.opacity).toBe("0");
+    expect(btn.tabIndex).toBe(-1);
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("reveals a blue pill with the target version when an update is found", async () => {
+    await mount();
+    updater.check.mockResolvedValue(FAKE_UPDATE());
+    await openOverlay();
+    const btn = document.querySelector<HTMLButtonElement>("#update")!;
+    expect(btn.style.opacity).toBe("1");
+    expect(btn.tabIndex).toBe(0);
+    expect(document.querySelector("#update .update-label")!.textContent).toBe("Update to v0.2.0");
+  });
+
+  it("clicking downloads, installs and relaunches into the new version", async () => {
+    await mount();
+    const update = FAKE_UPDATE();
+    updater.check.mockResolvedValue(update);
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#update")!.click();
+    await flush();
+    expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(processPlugin.relaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the download progress on the pill", async () => {
+    await mount();
+    const update = FAKE_UPDATE();
+    let resolveInstall!: () => void;
+    const installGate = new Promise<void>((resolve) => {
+      resolveInstall = resolve;
+    });
+    update.downloadAndInstall = vi.fn().mockImplementation(async (onEvent) => {
+      onEvent({ event: "Started", data: { contentLength: 100 } });
+      onEvent({ event: "Progress", data: { chunkLength: 40 } });
+      onEvent({ event: "Progress", data: { chunkLength: 20 } });
+      await installGate;
+    });
+    updater.check.mockResolvedValue(update);
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#update")!.click();
+    await flush();
+    expect(document.querySelector("#update .update-label")!.textContent).toBe("Downloading 60%");
+    expect(document.querySelector<HTMLButtonElement>("#update")!.disabled).toBe(true);
+    resolveInstall();
+    await flush();
+    expect(document.querySelector("#update .update-label")!.textContent).toBe("Installing…");
+  });
+
+  it("reverts to the update pill when the download fails", async () => {
+    await mount();
+    const update = FAKE_UPDATE();
+    update.downloadAndInstall = vi.fn().mockRejectedValue(new Error("network"));
+    updater.check.mockResolvedValue(update);
+    await openOverlay();
+    const btn = document.querySelector<HTMLButtonElement>("#update")!;
+    btn.click();
+    await flush();
+    expect(document.querySelector("#update .update-label")!.textContent).toBe("Update to v0.2.0");
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("localizes the pill label", async () => {
+    await mount();
+    updater.check.mockResolvedValue(FAKE_UPDATE());
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const select = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    select.value = "es";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    expect(document.querySelector("#update .update-label")!.textContent).toBe("Actualizar a v0.2.0");
   });
 });

@@ -82,11 +82,24 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The updater artifacts are minisign-signed with this key pair.
+          # Set the secrets in the repo settings (Actions → Secrets and
+          # variables): TAURI_SIGNING_PRIVATE_KEY = contents of the .key
+          # file generated with `tauri signer generate`; keep the matching
+          # public key in sync with tauri.conf.json → plugins.updater.pubkey.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'QuickSpot v__VERSION__'
           releaseBody: |
-            Initial release
-          releaseDraft: true
+            See the assets to download this version and install.
+          # Published (not draft): the in-app updater polls the
+          # `releases/latest` endpoint, which only sees published releases.
+          releaseDraft: false
+          generateReleaseNotes: true
           prerelease: false
+          # Point the Windows updater at the per-user NSIS installer instead
+          # of the MSI (quieter, no elevation needed).
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}

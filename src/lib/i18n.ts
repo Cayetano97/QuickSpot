@@ -64,6 +64,9 @@ interface Dict {
   tabsAria: string;
   actionsTab: string;
   groupsTab: string;
+  updateTo: string;
+  updateDownloading: string;
+  updateInstalling: string;
 }
 
 const en: Dict = {
@@ -129,6 +132,9 @@ const en: Dict = {
   tabsAria: "Action editor sections",
   actionsTab: "Actions",
   groupsTab: "Groups",
+  updateTo: "Update to v{version}",
+  updateDownloading: "Downloading {percent}%",
+  updateInstalling: "Installing\u2026",
 };
 
 const es: Dict = {
@@ -194,6 +200,9 @@ const es: Dict = {
   tabsAria: "Secciones del editor de acciones",
   actionsTab: "Acciones",
   groupsTab: "Grupos",
+  updateTo: "Actualizar a v{version}",
+  updateDownloading: "Descargando {percent}%",
+  updateInstalling: "Instalando\u2026",
 };
 
 export type DictKey = keyof typeof en;

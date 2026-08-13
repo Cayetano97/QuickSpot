@@ -142,6 +142,7 @@ button {
 #hub:focus-visible,
 #add:focus-visible,
 #minimize:focus-visible,
+#update:focus-visible,
 .chip:focus-visible,
 #actions-add:focus-visible,
 #actions-group:focus-visible,
@@ -319,6 +320,60 @@ button {
 
 #minimize:active svg {
   transform: scale(0.9);
+}
+
+/* ---------------------------------------------------------------- update */
+
+/* Subtle blue pill for an available update (OpenCode-style): a quiet,
+   ghost-fill button that appears at the bottom of the disc and turns into
+   a download progress readout while the update is fetched. */
+#update {
+  position: absolute;
+  left: 50%;
+  top: 512px;
+  height: 26px;
+  padding: 0 14px;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: #6db1ff;
+  background: rgba(94, 158, 255, 0.12);
+  border: 1px solid rgba(94, 158, 255, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+
+#update svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #update:hover:not(:disabled) {
+    background: rgba(94, 158, 255, 0.22);
+    border-color: rgba(94, 158, 255, 0.7);
+  }
+}
+
+#update:active:not(:disabled) {
+  transform: translateX(-50%) scale(0.96);
+}
+
+#update:disabled {
+  color: var(--ink-muted);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(229, 229, 229, 0.22);
+  cursor: default;
 }
 
 /* ----------------------------------------------------------------- grip */
@@ -503,6 +558,7 @@ button {
 #overlay.panel #hub,
 #overlay.panel #add,
 #overlay.panel #minimize,
+#overlay.panel #update,
 #overlay.panel #query-wrap,
 #overlay.panel #query,
 #overlay.panel #chips,
@@ -1645,6 +1701,7 @@ button {
   #run-error,
   #minimize,
   #minimize svg,
+  #update,
   #hub .gear,
   #add .plus,
   #overlay.settled .chip,
@@ -1685,6 +1742,7 @@ button {
   #hub,
   #add,
   #minimize,
+  #update,
   .chip,
   #query-wrap,
   #settings,

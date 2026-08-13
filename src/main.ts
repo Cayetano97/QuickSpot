@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
   ADD_X,
   CENTER_X,
@@ -71,6 +73,8 @@ const disc = document.querySelector<HTMLElement>("#disc")!;
 const hub = document.querySelector<HTMLButtonElement>("#hub")!;
 const addBtn = document.querySelector<HTMLButtonElement>("#add")!;
 const minimize = document.querySelector<HTMLButtonElement>("#minimize")!;
+const updateBtn = document.querySelector<HTMLButtonElement>("#update")!;
+const updateLabel = document.querySelector<HTMLElement>("#update .update-label")!;
 const grip = document.querySelector<HTMLElement>("#grip")!;
 const input = document.querySelector<HTMLInputElement>("#query")!;
 const queryWrap = document.querySelector<HTMLElement>("#query-wrap")!;
@@ -107,6 +111,99 @@ let actionsAdd: HTMLButtonElement | null = null;
 let activeActionsTab: "actions" | "groups" = "actions";
 
 let uiScale = 1;
+
+// ---------------------------------------------------------------- updater
+
+/** Minimum time between update checks on overlay opens (ms). The first open
+ * after launch always checks; afterwards the server is polled at most every
+ * five minutes so the always-on-top overlay never stalls on the network. */
+const UPDATE_MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+type UpdatePhase = "none" | "available" | "downloading" | "installing";
+
+let updatePhase: UpdatePhase = "none";
+let pendingUpdate: Update | null = null;
+let updatePercent = 0;
+let updateCheckedAt = 0;
+
+/** Recompute the pill's label from the current phase (localized). */
+function updateLabelText(): string {
+  const L = currentLanguage;
+  switch (updatePhase) {
+    case "available":
+      return t(L, "updateTo", { version: pendingUpdate?.version ?? "" });
+    case "downloading":
+      return t(L, "updateDownloading", { percent: String(updatePercent) });
+    case "installing":
+      return t(L, "updateInstalling");
+    default:
+      return "";
+  }
+}
+
+/** Reflect the update state on the pill: label, aria, tab order, disabled. */
+function syncUpdateBtn(): void {
+  const visible = updatePhase !== "none";
+  updateLabel.textContent = updateLabelText();
+  updateBtn.setAttribute("aria-label", updateLabelText());
+  updateBtn.disabled = updatePhase === "downloading" || updatePhase === "installing";
+  updateBtn.tabIndex = visible && !panelOpen() ? 0 : -1;
+}
+
+/** Poll GitHub for a newer release; non-fatal when offline. */
+async function checkForUpdate(): Promise<void> {
+  if (updatePhase === "downloading" || updatePhase === "installing") return;
+  const now = Date.now();
+  if (now - updateCheckedAt < UPDATE_MIN_CHECK_INTERVAL_MS) return;
+  updateCheckedAt = now;
+  try {
+    pendingUpdate = await check();
+    updatePhase = pendingUpdate ? "available" : "none";
+  } catch {
+    // Offline or no endpoint yet: keep whatever state we had.
+  }
+  syncUpdateBtn();
+}
+
+/** Download + install the pending update, then relaunch into it. */
+async function installUpdate(): Promise<void> {
+  if (updatePhase !== "available" || !pendingUpdate) return;
+  const update = pendingUpdate;
+  updatePhase = "downloading";
+  updatePercent = 0;
+  syncUpdateBtn();
+  try {
+    let downloaded = 0;
+    let contentLength = 0;
+    await update.downloadAndInstall((event) => {
+      switch (event.event) {
+        case "Started":
+          contentLength = event.data.contentLength ?? 0;
+          break;
+        case "Progress":
+          downloaded += event.data.chunkLength;
+          if (contentLength > 0) {
+            updatePercent = Math.min(99, Math.round((downloaded / contentLength) * 100));
+            syncUpdateBtn();
+          }
+          break;
+        case "Finished":
+          break;
+      }
+    });
+    updatePhase = "installing";
+    syncUpdateBtn();
+    await relaunch();
+  } catch (err) {
+    console.error("[quickspot] update failed:", err);
+    updatePhase = "available";
+    syncUpdateBtn();
+  }
+}
+
+updateBtn.addEventListener("click", () => {
+  void installUpdate();
+});
 
 function syncUiScale(): void {
   uiScale = Math.max(0.5, Math.min(1, window.innerWidth / 520, window.innerHeight / 580));
@@ -184,6 +281,7 @@ function localizeAll(): void {
   addBtn.setAttribute("aria-label", t(L, "addActions"));
   grip.setAttribute("aria-label", t(L, "dragAria"));
   minimize.setAttribute("aria-label", t(L, "minimize"));
+  syncUpdateBtn();
   settingsTitle.textContent = t(L, "settingsTitle");
   settingsPanel.setAttribute("aria-label", t(L, "settingsTitle"));
   settingsClose.setAttribute("aria-label", t(L, "close"));
@@ -332,6 +430,11 @@ function render(): void {
   addBtn.style.pointerEvents = pe;
   minimize.style.pointerEvents = pe;
   for (let i = 0; i < MAX_VISIBLE; i++) chips[i].style.pointerEvents = pe;
+
+  const updateVisible = updatePhase !== "none";
+  updateBtn.style.opacity = String(easeOutQuart(dp) * (updateVisible ? 1 : 0));
+  updateBtn.style.transform = `translateX(-50%) translateY(${(1 - easeOutCubic(dp)) * 10}px)`;
+  updateBtn.style.pointerEvents = enabled && updateVisible && !updateBtn.disabled ? "auto" : "none";
 }
 
 // ------------------------------------------------------------ animation loop
@@ -711,6 +814,7 @@ function focusPanel(panel: HTMLElement): void {
   hub.tabIndex = -1;
   addBtn.tabIndex = -1;
   minimize.tabIndex = -1;
+  updateBtn.tabIndex = -1;
   input.tabIndex = -1;
   root.classList.add("panel");
   panel.classList.add("open");
@@ -725,6 +829,7 @@ function releasePanel(): void {
   addBtn.tabIndex = 0;
   minimize.tabIndex = 0;
   input.tabIndex = 0;
+  syncUpdateBtn();
 }
 
 function closeSettings(): void {
@@ -1770,6 +1875,7 @@ async function init(): Promise<void> {
       root.classList.add("open");
       ensureLoop();
       input.focus();
+      void checkForUpdate();
     }),
     listen("overlay-close", () => {
       closePanels();

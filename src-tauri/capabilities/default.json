@@ -3,5 +3,10 @@
   "identifier": "default",
   "description": "Quickspot overlay permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "autostart:default"]
+  "permissions": [
+    "core:default",
+    "autostart:default",
+    "updater:default",
+    "process:default"
+  ]
 }
