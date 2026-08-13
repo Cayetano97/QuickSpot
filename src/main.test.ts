@@ -78,33 +78,35 @@ function installDom(): void {
       <form id="settings" role="dialog" aria-modal="true" aria-hidden="true">
         <div id="settings-header">
           <span id="settings-title">Settings</span>
-
+          <button id="settings-close" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
         </div>
         <section class="settings-section" id="settings-general" aria-labelledby="settings-general-heading">
           <h2 class="settings-section-title" id="settings-general-heading">General</h2>
-          <div class="settings-general-rows">
-            <div class="settings-field">
-              <label for="settings-lang" id="settings-language-label">Language</label>
+          <div class="settings-group">
+            <div class="settings-list-row">
+              <label class="settings-row-label" for="settings-lang" id="settings-language-label">Language</label>
               <select id="settings-lang" aria-label="Language">
                 <option value="system">System default</option>
                 <option value="en">English</option>
                 <option value="es">Español</option>
               </select>
             </div>
-            <div class="settings-field">
-              <label for="settings-magnify" id="settings-dock-label">Magnify on hover</label>
-              <label class="switch">
+            <label class="settings-list-row">
+              <span class="settings-row-label" id="settings-dock-label">Magnify on hover</span>
+              <span class="switch">
                 <input id="settings-magnify" type="checkbox" />
                 <span class="switch-track"></span>
-              </label>
-            </div>
-            <div class="settings-field">
-              <label for="settings-autostart" id="settings-autostart-label">Launch at login</label>
-              <label class="switch">
+              </span>
+            </label>
+            <label class="settings-list-row">
+              <span class="settings-row-label" id="settings-autostart-label">Launch at login</span>
+              <span class="switch">
                 <input id="settings-autostart" type="checkbox" />
                 <span class="switch-track"></span>
-              </label>
-            </div>
+              </span>
+            </label>
           </div>
         </section>
         <div id="settings-footer">
@@ -452,16 +454,24 @@ describe("settings panel", () => {
     expect(minimize.tabIndex).toBe(-1);
     expect(query.tabIndex).toBe(-1);
     const save = document.querySelector<HTMLButtonElement>("#settings-save")!;
-    const lang = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    const close = document.querySelector<HTMLButtonElement>("#settings-close")!;
     save.focus();
     key(save, "Tab");
-    expect(document.activeElement).toBe(lang);
-    key(lang, "Tab", { shiftKey: true });
+    expect(document.activeElement).toBe(close);
+    key(close, "Tab", { shiftKey: true });
     expect(document.activeElement).toBe(save);
     document.querySelector<HTMLButtonElement>("#hub")!.click();
     expect(hub.tabIndex).toBe(0);
     expect(minimize.tabIndex).toBe(0);
     expect(query.tabIndex).toBe(0);
+  });
+
+  it("closes the settings panel with the visible close button", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    expect(document.querySelector("#settings")!.classList.contains("open")).toBe(true);
+    document.querySelector<HTMLButtonElement>("#settings-close")!.click();
+    expect(document.querySelector("#settings")!.classList.contains("open")).toBe(false);
   });
 
   it("submitting the settings form saves and closes", async () => {

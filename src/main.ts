@@ -82,6 +82,7 @@ let runErrorTimer = 0;
 
 const settingsPanel = document.querySelector<HTMLElement>("#settings")!;
 const settingsTitle = document.querySelector<HTMLElement>("#settings-title")!;
+const settingsClose = document.querySelector<HTMLButtonElement>("#settings-close")!;
 const settingsLanguageLabel = document.querySelector<HTMLElement>("#settings-language-label")!;
 const settingsDockLabel = document.querySelector<HTMLElement>("#settings-dock-label")!;
 const settingsMagnify = document.querySelector<HTMLInputElement>("#settings-magnify")!;
@@ -185,6 +186,7 @@ function localizeAll(): void {
   minimize.setAttribute("aria-label", t(L, "minimize"));
   settingsTitle.textContent = t(L, "settingsTitle");
   settingsPanel.setAttribute("aria-label", t(L, "settingsTitle"));
+  settingsClose.setAttribute("aria-label", t(L, "close"));
   settingsLanguageLabel.textContent = t(L, "languageLabel");
   settingsDockLabel.textContent = t(L, "magnifyLabel");
   settingsMagnify.setAttribute("aria-label", t(L, "magnifyLabel"));
@@ -203,6 +205,7 @@ function localizeAll(): void {
   if (actionsAdd) actionsAdd.textContent = t(L, "addAction");
   settingsSave.textContent = t(L, "save");
   settingsError.textContent = "";
+  settingsError.classList.remove("visible");
   actionsSave.textContent = t(L, "save");
   actionsError.textContent = "";
   actionsRows.setAttribute("aria-label", t(L, "actionsAria"));
@@ -510,6 +513,10 @@ settingsSave.addEventListener("click", () => {
   void saveSettings();
 });
 
+settingsClose.addEventListener("click", () => {
+  if (settingsOpen) closeSettings();
+});
+
 actionsPanel.addEventListener("submit", (e) => {
   e.preventDefault();
   if (!actionsSave.disabled) void saveActions();
@@ -668,6 +675,7 @@ function openSettings(): void {
   if (actionsOpen) closeActions();
   settingsOpen = true;
   settingsError.textContent = "";
+  settingsError.classList.remove("visible");
   settingsSave.disabled = false;
   langSelect.value = langDraft ?? savedLanguage;
   settingsMagnify.checked = magnifyEnabled;
@@ -1674,6 +1682,7 @@ function collectSettingsActions(): Action[] {
 async function saveSettings(): Promise<void> {
   const language = langDraft ?? savedLanguage;
   settingsError.textContent = "";
+  settingsError.classList.remove("visible");
   settingsSave.disabled = true;
   try {
     if (settingsAutostart.checked !== autostartAtOpen) {
@@ -1690,6 +1699,7 @@ async function saveSettings(): Promise<void> {
     closeSettings();
   } catch (err) {
     settingsError.textContent = t(currentLanguage, "saveError", { msg: String(err) });
+    settingsError.classList.add("visible");
     settingsSave.disabled = false;
   }
 }

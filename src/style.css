@@ -146,6 +146,7 @@ button {
 #actions-add:focus-visible,
 #actions-group:focus-visible,
 #actions-close:focus-visible,
+#settings-close:focus-visible,
 #settings-save:focus-visible,
 #actions-save:focus-visible,
 #settings-lang:focus-visible,
@@ -544,8 +545,9 @@ button {
 /* Settings is just a few general options: let it hug its content instead
    of claiming a full-height sheet. */
 #settings {
-  width: min(380px, calc(100vw - 24px));
+  width: min(400px, calc(100vw - 24px));
   height: auto;
+  border-radius: 18px;
 }
 
 #settings.open,
@@ -573,11 +575,12 @@ button {
   padding: 18px 22px 14px;
 }
 
-#actions-close {
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
-  border-radius: 17px;
+#actions-close,
+#settings-close {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
   color: var(--ink-dim);
   display: flex;
   align-items: center;
@@ -585,9 +588,10 @@ button {
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
 }
 
-#actions-close svg {
-  width: 18px;
-  height: 18px;
+#actions-close svg,
+#settings-close svg {
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -595,10 +599,21 @@ button {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  #actions-close:hover {
+  #actions-close:hover,
+  #settings-close:hover {
     color: var(--accent);
     background: var(--ghost-fill-active);
   }
+}
+
+/* Settings keeps its title compact next to the close button. */
+#settings-header {
+  padding: 12px 12px 10px 16px;
+  font-size: 14px;
+}
+
+#settings-header #settings-title {
+  letter-spacing: -0.01em;
 }
 
 #actions-tabs {
@@ -643,56 +658,90 @@ button {
 /* ---------------------------------------------------------- general section */
 
 .settings-section-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--ink-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 14px 18px 8px;
+  letter-spacing: 0;
+  padding: 14px 16px 8px;
 }
 
 #settings-general {
-  border-bottom: 1px solid rgba(229, 229, 229, 0.12);
+  padding-bottom: 4px;
 }
 
-.settings-general-rows {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  padding: 0 18px 14px;
+/* Inset grouped list (macOS System Settings style): a single rounded
+   container whose rows are split by hairline dividers, with the control
+   flush against the trailing edge. */
+.settings-group {
+  margin: 0 16px;
+  border: 1px solid rgba(229, 229, 229, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  overflow: hidden;
 }
 
-.settings-field {
+.settings-list-row {
   display: flex;
-  flex-direction: column;
-  gap: 7px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 0 14px;
+  cursor: pointer;
+  transition: background var(--duration-fast) ease;
+}
+
+.settings-list-row + .settings-list-row {
+  border-top: 1px solid rgba(229, 229, 229, 0.09);
+}
+
+.settings-list-row:hover {
+  background: var(--ghost-fill);
+}
+
+.settings-list-row:active {
+  background: var(--ghost-fill-active);
+}
+
+.settings-row-label {
   font-size: 13px;
   color: var(--accent);
   min-width: 0;
 }
 
+/* The language control is a compact pop-up button hugging the row's
+   trailing edge, not a full-width field. */
 #settings-lang {
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--ghost-fill);
   border: 1px solid var(--ghost-border);
-  border-radius: 10px;
-  min-height: 40px;
-  padding: 7px 30px 7px 12px;
+  border-radius: 8px;
+  min-height: 30px;
+  min-width: 128px;
+  padding: 0 26px 0 11px;
   outline: none;
   cursor: pointer;
-  width: 100%;
+  flex: none;
   appearance: none;
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(245,245,247,0.55)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 9px center;
-  background-size: 14px 14px;
+  background-position: right 8px center;
+  background-size: 12px 12px;
+  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease;
 }
 
 #settings-lang:focus-visible {
   border-color: var(--accent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #settings-lang:hover {
+    background: var(--ghost-fill-active);
+  }
 }
 
 /* macOS-style toggle switch */
@@ -1422,6 +1471,10 @@ button {
   text-overflow: ellipsis;
 }
 
+#settings-error.visible {
+  color: #ff6961;
+}
+
 #settings-save,
 #actions-save {
   min-height: 40px;
@@ -1476,10 +1529,14 @@ button {
     padding-right: 14px;
   }
 
-  .settings-general-rows {
-    grid-template-columns: 1fr;
-    padding-left: 14px;
-    padding-right: 14px;
+  .settings-section-title {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .settings-group {
+    margin-left: 12px;
+    margin-right: 12px;
   }
 
   #settings-rows,
@@ -1595,6 +1652,8 @@ button {
   #actions-group,
   #settings-save,
   #actions-save,
+  #settings-close,
+  .settings-list-row,
   .settings-row,
   .settings-row .s-app-browse,
   .settings-row .s-del,
@@ -1630,6 +1689,8 @@ button {
   #query-wrap,
   #settings,
   #actions,
+  .settings-list-row,
+  .settings-group,
   .settings-row,
   .settings-row input,
   .settings-row select,
