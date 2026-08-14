@@ -94,11 +94,8 @@ function installDom(): void {
           <div class="settings-group">
             <div class="settings-list-row">
               <label class="settings-row-label" for="settings-lang" id="settings-language-label">Language</label>
-              <select id="settings-lang" aria-label="Language">
-                <option value="system">System default</option>
-                <option value="en">English</option>
-                <option value="es">Español</option>
-              </select>
+              <select id="settings-lang" aria-label="Language"></select>
+              <p class="settings-translators" id="settings-translators"></p>
             </div>
             <label class="settings-list-row">
               <span class="settings-row-label" id="settings-dock-label">Magnify on hover</span>
@@ -490,6 +487,27 @@ describe("settings panel", () => {
     document.querySelector<HTMLButtonElement>("#settings-save")!.click();
     await flush();
     expect(invoke).toHaveBeenCalledWith("save_config", expect.objectContaining({ language: "es" }));
+  });
+
+  it("lists every registered language with its native label", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const options = document.querySelectorAll<HTMLOptionElement>("#settings-lang option");
+    const labels = Array.from(options, (o) => o.textContent);
+    expect(labels).toContain("English");
+    expect(labels).toContain("Español");
+    expect(document.querySelector<HTMLOptionElement>("#settings-lang option[value='system']")).not.toBeNull();
+  });
+
+  it("shows no translator credit for the owner-maintained languages", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const credit = document.querySelector<HTMLElement>("#settings-translators")!;
+    expect(credit.textContent).toBe("");
+    const select = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    select.value = "es";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(credit.textContent).toBe("");
   });
 
   it("traps focus while open: outside controls leave the tab order and Tab wraps inside the panel", async () => {

@@ -55,9 +55,10 @@ pub enum ConfigError {
 
 /// The parsed config: the action list, the optional group definitions (a
 /// group is just a named color bucket actions can reference), an optional
-/// language override (`"system"` | `"en"` | `"es"`; `None` = follow the OS
-/// language), the dock hover magnification flag (defaults to on), and
-/// whether the action chips show their kind icons (defaults to on).
+/// language override (`"system"` = follow the OS, or any BCP-47-ish code
+/// such as `"en"` / `"es"` / `"fr"`; `None` = follow the OS), the dock hover
+/// magnification flag (defaults to on), and whether the action chips show
+/// their kind icons (defaults to on).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Config {
     pub actions: Vec<Action>,
@@ -79,9 +80,18 @@ impl Config {
     }
 }
 
-/// The accepted `language` values.
+/// The accepted `language` values: `"system"` (follow the OS) or any
+/// BCP-47-ish code such as `"en"`, `"es"`, `"fr"`, `"zh-TW"`. The set of
+/// codes is not hardcoded: the frontend ships one locale file per language
+/// (`src/lib/locales/*.json`) and falls back to English for unknown codes,
+/// so a new language only needs its locale file, not a Rust change.
 pub fn valid_language(value: &str) -> bool {
-    matches!(value, "system" | "en" | "es")
+    value == "system"
+        || (!value.is_empty()
+            && value.len() <= 64
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
 }
 
 /// The three built-in defaults.
@@ -375,11 +385,17 @@ mod tests {
         assert_eq!(config.language.as_deref(), Some("system"));
         let config = parse_config(r#"{"language":"en","actions":[]}"#).unwrap();
         assert_eq!(config.language.as_deref(), Some("en"));
+        let config = parse_config(r#"{"language":"fr","actions":[]}"#).unwrap();
+        assert_eq!(config.language.as_deref(), Some("fr"));
+        let config = parse_config(r#"{"language":"zh-TW","actions":[]}"#).unwrap();
+        assert_eq!(config.language.as_deref(), Some("zh-TW"));
     }
 
     #[test]
     fn unknown_language_falls_back_to_system() {
-        let config = parse_config(r#"{"language":"fr","actions":[]}"#).unwrap();
+        let config = parse_config(r#"{"language":"","actions":[]}"#).unwrap();
+        assert_eq!(config.language, None);
+        let config = parse_config(r#"{"language":"muy largo","actions":[]}"#).unwrap();
         assert_eq!(config.language, None);
     }
 

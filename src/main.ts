@@ -28,6 +28,7 @@ import {
   staggeredProgress,
 } from "./lib/easing";
 import {
+  LANGUAGES,
   resolveLanguage,
   t,
   type DictKey,
@@ -89,6 +90,7 @@ const settingsPanel = document.querySelector<HTMLElement>("#settings")!;
 const settingsTitle = document.querySelector<HTMLElement>("#settings-title")!;
 const settingsClose = document.querySelector<HTMLButtonElement>("#settings-close")!;
 const settingsLanguageLabel = document.querySelector<HTMLElement>("#settings-language-label")!;
+const settingsTranslators = document.querySelector<HTMLElement>("#settings-translators")!;
 const settingsDockLabel = document.querySelector<HTMLElement>("#settings-dock-label")!;
 const settingsIconsLabel = document.querySelector<HTMLElement>("#settings-icons-label")!;
 const settingsMagnify = document.querySelector<HTMLInputElement>("#settings-magnify")!;
@@ -100,6 +102,7 @@ const settingsUpdateBtn = document.querySelector<HTMLButtonElement>("#settings-u
 const langSelect = document.querySelector<HTMLSelectElement>("#settings-lang")!;
 const settingsError = document.querySelector<HTMLElement>("#settings-error")!;
 const settingsSave = document.querySelector<HTMLButtonElement>("#settings-save")!;
+populateLanguages();
 
 const actionsPanel = document.querySelector<HTMLElement>("#actions")!;
 const actionsTitle = document.querySelector<HTMLElement>("#actions-title")!;
@@ -343,6 +346,32 @@ function applyLanguage(): void {
   localizeAll();
 }
 
+/** Fill the language select once: "System default" + one entry per locale,
+ * labeled with the language's own name (from `_meta.label`). */
+function populateLanguages(): void {
+  langSelect.replaceChildren();
+  const system = document.createElement("option");
+  system.value = "system";
+  langSelect.appendChild(system);
+  for (const lang of LANGUAGES) {
+    const option = document.createElement("option");
+    option.value = lang.code;
+    option.textContent = lang.label;
+    langSelect.appendChild(option);
+  }
+}
+
+/** Credit line under the language select: the current language's translators. */
+function localizeTranslators(): void {
+  settingsTranslators.replaceChildren();
+  const meta = LANGUAGES.find((lang) => lang.code === currentLanguage);
+  if (!meta || meta.translators.length === 0) return;
+  const label = t(currentLanguage, "translatedBy", {
+    translators: meta.translators.map((name) => `@${name}`).join(", "),
+  });
+  settingsTranslators.textContent = label;
+}
+
 function localizeAll(): void {
   const L = currentLanguage;
   document.documentElement.lang = L;
@@ -368,6 +397,7 @@ function localizeAll(): void {
   settingsUpdateLabel.textContent = t(L, "checkForUpdates");
   langSelect.setAttribute("aria-label", t(L, "languageLabel"));
   langSelect.options[0].textContent = t(L, "languageSystem");
+  localizeTranslators();
   actionsTitle.textContent = t(L, "actionsTitle");
   actionsPanel.setAttribute("aria-label", t(L, "actionsTitle"));
   actionsPanel.setAttribute("aria-describedby", "actions-description");

@@ -772,6 +772,29 @@ button {
   min-width: 0;
 }
 
+/* Rows stacking label, control and a hint on separate lines (language row). */
+.settings-list-row-col {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+}
+
+.settings-list-row-col #settings-lang {
+  align-self: flex-end;
+}
+
+.settings-translators {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.settings-translators a {
+  color: var(--ink-muted);
+}
+
 /* Compact pop-up controls hugging the row's trailing edge: the language
    select and the update-check button share the same pill treatment. */
 #settings-lang,

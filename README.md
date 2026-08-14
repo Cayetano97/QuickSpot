@@ -108,7 +108,7 @@ unknown `kind`) are skipped.
 | `hint` | Optional: reserved for future use; ignored in v1 |
 | `group` | Optional: id of the group this action belongs to |
 | `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The actions panel manages groups and colors (curated palette plus a validated custom hex) |
-| `language` | Optional, top-level: `"system"`, `"en"`, or `"es"`. Missing = OS language; if the OS language isn't Spanish, English is used |
+| `language` | Optional, top-level: `"system"` (follow the OS language) or any BCP-47-ish code with a locale file — currently `"en"`, `"es"`. Unknown codes fall back to English |
 
 ## Project layout
 
@@ -133,9 +133,10 @@ QuickSpot/
 ## Testing
 
 - **Frontend** — `npm test` (Vitest): filter semantics, selection wrapping,
-  Unicode backspace, the open/close state machine, and the full overlay UI
-  (rendering, live filtering, keyboard, settings panel, app picker) in
-  jsdom with the Tauri IPC mocked.
+  Unicode backspace, the open/close state machine, locale parity (every
+  language has the same keys, placeholders and translator credits as
+  English), and the full overlay UI (rendering, live filtering, keyboard,
+  settings panel, app picker) in jsdom with the Tauri IPC mocked.
 - **Backend** — `cargo test` (in `src-tauri/`): config parsing fallbacks,
   per-platform execution plans, app discovery, and the drag-clamp /
   monitor-centering math.
@@ -145,6 +146,25 @@ Both suites run on GitHub Actions for every push and pull request (see
 macOS and Windows — so the platform-specific branches (macOS bundle-id
 routing, the Windows `cmd /c` shell, Linux `.desktop` parsing) are
 exercised on their real platforms.
+
+## Translations
+
+Each language is a single file in `src/lib/locales/` (`en.json`, `es.json`, …).
+The app loads every file in that folder at startup, so adding a language is
+just a PR with one new file — no code changes.
+
+To add a language:
+
+1. Copy `src/lib/locales/en.json` to `src/lib/locales/<code>.json` (e.g. `fr.json`).
+2. Translate every value, leaving the `{var}` placeholders untouched.
+3. Set the `_meta` block — the language's native name (shown in the settings
+   selector) and your GitHub username(s) so the app can thank you in the
+   settings panel:
+   ```json
+   { "_meta": { "label": "Français", "translators": ["your-username"] }, "placeholder": "Rechercher…" }
+   ```
+4. Run `npm test` — it checks that every locale has exactly the keys English
+   has, that no placeholders were lost or added
 
 ## Updates
 
