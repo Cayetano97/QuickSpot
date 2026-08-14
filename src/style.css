@@ -3,22 +3,22 @@
   --disc: #111113;
   --disc-core: #111113;
   --disc-rim: #000000;
-  --ink-dim: rgba(245, 245, 247, 0.68);
-  --ink-muted: rgba(245, 245, 247, 0.52);
-  --ghost-fill: rgba(255, 255, 255, 0.08);
-  --ghost-fill-active: rgba(255, 255, 255, 0.14);
-  --ghost-border: rgba(245, 245, 247, 0.38);
-  --chip-fill: rgba(255, 255, 255, 0.075);
-  --chip-border: rgba(245, 245, 247, 0.46);
-  --grip-idle: rgba(255, 255, 255, 0.18);
-  --grip-hover: rgba(255, 255, 255, 0.3);
+  --ink-dim: #b3b3b8;
+  --ink-muted: #949499;
+  --ghost-fill: #2c2c2f;
+  --ghost-fill-active: #3b3b3f;
+  --ghost-border: #6f6f73;
+  --chip-fill: #2b2b2e;
+  --chip-border: #7b7b7f;
+  --grip-idle: #3c3c3f;
+  --grip-hover: #58585c;
   --grip-ink: var(--accent);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 120ms;
   --duration-base: 180ms;
   --editor-control-h: 40px;
-  --editor-icon-size: 40px;
+  --editor-icon-size: 34px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   font-size: 16px;
@@ -135,7 +135,7 @@ button {
   #hub:hover,
   #add:hover {
     background: var(--ghost-fill-active);
-    border-color: rgba(245, 245, 247, 0.6);
+    border-color: #9a9a9e;
   }
 }
 
@@ -152,7 +152,6 @@ button {
 #actions-save:focus-visible,
 #settings-lang:focus-visible,
 .settings-row input:focus-visible,
-.settings-row select:focus-visible,
 .settings-row .s-group-trigger:focus-visible,
 .settings-row .s-order-controls button:focus-visible,
 .settings-row .s-app-browse:focus-visible,
@@ -206,8 +205,8 @@ button {
   align-items: center;
   justify-content: center;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(229, 229, 229, 0.16);
+  background: #1d1d1f;
+  border: 1px solid #333335;
   transition: background var(--duration-base) ease, border-color var(--duration-base) ease;
   overflow: hidden;
   pointer-events: none;
@@ -217,13 +216,13 @@ button {
 }
 
 #query-wrap.active {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(229, 229, 229, 0.34);
+  background: #242426;
+  border-color: #59595b;
 }
 
 #overlay:has(#query:focus) #query-wrap {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(245, 245, 247, 0.5);
+  background: #242426;
+  border-color: #7a7a7c;
 }
 
 #query-mirror {
@@ -309,7 +308,7 @@ button {
 @media (hover: hover) and (pointer: fine) {
   #minimize:hover {
     background: var(--ghost-fill-active);
-    border-color: rgba(245, 245, 247, 0.6);
+    border-color: #9a9a9e;
   }
 }
 
@@ -344,8 +343,8 @@ button {
   letter-spacing: 0.01em;
   white-space: nowrap;
   color: #6db1ff;
-  background: rgba(94, 158, 255, 0.12);
-  border: 1px solid rgba(94, 158, 255, 0.45);
+  background: #1a222e;
+  border: 1px solid #34517c;
   opacity: 0;
   pointer-events: none;
   z-index: 2;
@@ -361,8 +360,8 @@ button {
 
 @media (hover: hover) and (pointer: fine) {
   #update:hover:not(:disabled) {
-    background: rgba(94, 158, 255, 0.22);
-    border-color: rgba(94, 158, 255, 0.7);
+    background: #223046;
+    border-color: #4774b8;
   }
 }
 
@@ -372,8 +371,8 @@ button {
 
 #update:disabled {
   color: var(--ink-muted);
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(229, 229, 229, 0.22);
+  background: #1d1d1f;
+  border-color: #404042;
   cursor: default;
 }
 
@@ -454,10 +453,11 @@ button {
 
 /* Group colors: the color accents the icon, the border and the fill so the
    group identity reads at a glance, while the label and the selection state
-   keep the neutral --accent for legibility (color is never the only cue). */
+   keep the neutral --accent for legibility (color is never the only cue).
+   All mixes are opaque: the tint is blended into the chip's own fill. */
 .chip[data-group] {
-  border-color: color-mix(in srgb, var(--group-color) 52%, transparent);
-  background: color-mix(in srgb, var(--group-color) 13%, transparent);
+  border-color: color-mix(in srgb, var(--group-color) 52%, var(--chip-fill));
+  background: color-mix(in srgb, var(--group-color) 13%, var(--chip-fill));
   color: var(--group-color);
 }
 
@@ -467,12 +467,12 @@ button {
 
 .chip[data-group].selected {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--group-color) 30%, transparent);
+  background: color-mix(in srgb, var(--group-color) 30%, var(--chip-fill));
 }
 
 @media (hover: hover) and (pointer: fine) {
   .chip[data-group]:hover {
-    background: color-mix(in srgb, var(--group-color) 22%, transparent);
+    background: color-mix(in srgb, var(--group-color) 22%, var(--chip-fill));
   }
 }
 
@@ -577,12 +577,8 @@ button {
   width: 500px;
   height: 560px;
   border-radius: 20px;
-  background: linear-gradient(
-    180deg,
-    rgba(31, 31, 33, 0.97) 0%,
-    rgba(19, 19, 21, 0.97) 100%
-  );
-  border: 1px solid rgba(229, 229, 229, 0.22);
+  background: linear-gradient(180deg, #1f1f21 0%, #131315 100%);
+  border: 1px solid #4a4a4c;
   box-shadow:
     0 16px 40px rgba(0, 0, 0, 0.45),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -594,7 +590,6 @@ button {
   transform-origin: center;
   pointer-events: none;
   z-index: 10;
-  backdrop-filter: blur(18px) saturate(125%);
   transition: opacity var(--duration-base) ease, transform var(--duration-base) var(--ease-out),
     visibility 0s linear var(--duration-base);
 }
@@ -625,7 +620,7 @@ button {
   font-size: 16px;
   font-weight: 600;
   color: var(--accent);
-  border-bottom: 1px solid rgba(229, 229, 229, 0.12);
+  border-bottom: 1px solid #333335;
 }
 
 #actions-header {
@@ -680,9 +675,9 @@ button {
   gap: 4px;
   margin: 12px 20px 0;
   padding: 4px;
-  border: 1px solid rgba(229, 229, 229, 0.12);
+  border: 1px solid #333335;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.035);
+  background: #232325;
 }
 
 #actions-tabs [role="tab"] {
@@ -731,9 +726,9 @@ button {
    flush against the trailing edge. */
 .settings-group {
   margin: 0 16px;
-  border: 1px solid rgba(229, 229, 229, 0.1);
+  border: 1px solid #2f2f31;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.045);
+  background: #252527;
   overflow: hidden;
 }
 
@@ -749,7 +744,7 @@ button {
 }
 
 .settings-list-row + .settings-list-row {
-  border-top: 1px solid rgba(229, 229, 229, 0.09);
+  border-top: 1px solid #2d2d2f;
 }
 
 .settings-list-row:hover {
@@ -784,7 +779,7 @@ button {
   flex: none;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(245,245,247,0.55)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9ca0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   background-size: 12px 12px;
@@ -824,7 +819,7 @@ button {
   position: absolute;
   inset: 0;
   border-radius: 13px;
-  background: rgba(120, 120, 128, 0.32);
+  background: #39393b;
   pointer-events: none;
   transition: background var(--duration-fast) ease;
 }
@@ -873,73 +868,87 @@ button {
 
 #settings-rows::-webkit-scrollbar-thumb,
 #actions-rows::-webkit-scrollbar-thumb {
-  background: rgba(229, 229, 229, 0.24);
+  background: #4b4b4d;
   border-radius: 5px;
 }
 
 #settings-rows::-webkit-scrollbar-thumb:hover,
 #actions-rows::-webkit-scrollbar-thumb:hover {
-  background: rgba(229, 229, 229, 0.38);
+  background: #68686a;
 }
 
+/* One action card. Two content lines (name+type / value+group) with a
+   slim rail of per-row actions (reorder, delete) on the right. */
 .settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 8px;
+  padding: 12px 12px 12px 14px;
   border: 1px solid var(--ghost-border);
   border-radius: 14px;
   background: var(--chip-fill);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   transition: border-color 140ms ease-out, background 140ms ease-out;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .settings-row:hover {
-    border-color: rgba(245, 245, 247, 0.6);
-    background: rgba(255, 255, 255, 0.09);
+    border-color: #9a9a9e;
+    background: #303032;
   }
 }
 
 .settings-row-top {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px auto auto;
-  gap: 10px;
-  align-items: end;
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.action-field,
-.group-field {
+.settings-row .s-name-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-row .s-value-row {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-row .s-value-field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Per-row actions: move up and move down stacked on the right; the delete
+   button rides the end of the value line. */
+.settings-row .s-rail {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.field-label {
-  color: var(--ink-dim);
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.settings-row .s-kind-field,
-.settings-row .s-group-field {
-  min-width: 0;
+  align-items: center;
+  gap: 4px;
 }
 
 .settings-row .s-order-controls {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
   align-items: center;
-  padding-bottom: 1px;
+  gap: 4px;
 }
 
-.settings-row .s-order-controls button {
+.settings-row .s-rail button {
   width: var(--editor-icon-size);
   height: var(--editor-icon-size);
   border-radius: 10px;
   color: var(--accent);
-  background: var(--ghost-fill);
-  border: 1px solid var(--ghost-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -947,14 +956,19 @@ button {
     opacity var(--duration-fast) ease;
 }
 
-.settings-row .s-order-controls svg {
-  width: 17px;
-  height: 17px;
+.settings-row .s-rail svg {
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.settings-row .s-order-controls button {
+  background: var(--ghost-fill);
+  border: 1px solid var(--ghost-border);
 }
 
 .settings-row .s-order-controls button:disabled {
@@ -969,12 +983,14 @@ button {
   }
 }
 
-.settings-row input,
-.settings-row select {
+/* Text fields share one look; the segmented type control and the group
+   trigger are drawn as the same height so both lines line up. */
+.settings-row input[type="text"],
+.settings-row .s-group-trigger {
   font: inherit;
   font-size: 13px;
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
+  background: #29292b;
   border: 1px solid var(--ghost-border);
   border-radius: 9px;
   min-height: var(--editor-control-h);
@@ -982,25 +998,13 @@ button {
   outline: none;
 }
 
-.settings-row input:focus,
-.settings-row select:focus {
+.settings-row input[type="text"]:focus,
+.settings-row .s-group-trigger:focus {
   border-color: var(--accent);
 }
 
-/* Selects are drawn like the text inputs (same height, radius and padding)
-   instead of the OS-native popup look, with a chevron on the right. */
-.settings-row select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 30px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(245,245,247,0.55)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 9px center;
-  background-size: 14px 14px;
-}
-
 .settings-row input::placeholder {
-  color: rgba(229, 229, 229, 0.5);
+  color: #909092;
 }
 
 .settings-row .s-name {
@@ -1008,61 +1012,119 @@ button {
   min-width: 0;
 }
 
-.settings-row .s-kind {
-  width: 100%;
-  cursor: default;
-}
-
-.settings-row .s-value-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.settings-row .s-value-field {
-  flex: 1;
-}
-
-/* The group field is a full-width line under the value row; the anchored
-   listbox hangs below its trigger inside this column. */
-.settings-row .s-group-field {
-  flex: none;
-  width: 100%;
-}
-
+/* The value input always fills its field: the field is the flex item that
+   shares the line with browse/group/delete, so the input can never overlap
+   its neighbours at any window size. */
 .settings-row .s-value {
   width: 100%;
+  min-width: 0;
 }
 
-.settings-row .s-value-row .s-value {
-  flex: 1;
-  min-width: 0;
-  width: auto;
+/* Segmented radio group for the action type (URL / Command / App). */
+.settings-row .s-kind-group {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--ghost-border);
+  border-radius: 11px;
+  background: #262628;
+  transition: border-color var(--duration-fast) ease;
+}
+
+.settings-row .s-kind-group:focus-within {
+  border-color: var(--accent);
+}
+
+.settings-row .s-kind-opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px 0 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+.settings-row .s-kind-opt.on {
+  color: var(--accent);
+  background: var(--ghost-fill-active);
+  box-shadow: inset 0 0 0 1px rgba(229, 229, 229, 0.16);
+}
+
+.settings-row .s-kind-opt input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.settings-row .s-kind-icon {
+  display: inline-flex;
+}
+
+.settings-row .s-kind-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .settings-row .s-kind-opt:not(.on):hover {
+    color: var(--accent);
+    background: var(--ghost-fill);
+  }
 }
 
 .settings-row.invalid {
-  border-color: rgba(229, 84, 84, 0.75);
+  border-color: #b34b4b;
 }
 
 .settings-row.invalid .s-name,
 .settings-row.invalid .s-value {
-  border-color: rgba(229, 84, 84, 0.6);
+  border-color: #943d3d;
 }
 
+/* Browse apps: a compact icon button next to the value field. */
 .settings-row .s-app-browse {
-  flex: 0 0 auto;
-  min-height: var(--editor-control-h);
-  padding: 0 12px;
-  border-radius: 20px;
-  font-size: 13px;
-  color: var(--accent);
+  flex: 0 0 var(--editor-icon-size);
+  width: var(--editor-icon-size);
+  height: var(--editor-icon-size);
+  border-radius: 10px;
+  color: var(--ink-dim);
   background: var(--ghost-fill);
   border: 1px solid var(--ghost-border);
-  transition: background var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease,
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.settings-row .s-app-browse svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .settings-row .s-app-browse:hover {
+    color: var(--accent);
     background: var(--ghost-fill-active);
   }
 }
@@ -1075,12 +1137,54 @@ button {
   display: none;
 }
 
+/* The group field rides the value line; it only appears once at least one
+   group exists (progressive disclosure keeps rows calm by default). */
+.settings-row .s-group-field {
+  flex: 0 0 132px;
+  min-width: 0;
+}
+
+.settings-actions:not(.has-groups) .s-group-field {
+  display: none;
+}
+
+.settings-row .s-group-trigger {
+  width: 100%;
+  padding: 8px 30px 8px 11px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9ca0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 14px 14px;
+  transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
+}
+
+.settings-row .s-group-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--ghost-fill);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.settings-row .s-group-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* ----------------------------------------------------------- groups editor */
 
 .settings-groups {
-  border: 1px solid rgba(229, 229, 229, 0.12);
+  border: 1px solid #333335;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
+  background: #222224;
   padding: 16px 16px 18px;
   display: flex;
   flex-direction: column;
@@ -1108,14 +1212,15 @@ button {
 }
 
 .settings-groups .g-add {
-  min-height: var(--editor-control-h);
-  padding: 0 16px;
-  border-radius: 20px;
-  font-size: 13px;
-  color: var(--accent);
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 17px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
   background: var(--ghost-fill);
   border: 1px solid var(--ghost-border);
-  transition: transform var(--duration-fast) var(--ease-out), background var(--duration-fast) ease;
+  transition: transform var(--duration-fast) var(--ease-out), background var(--duration-fast) ease,
+    color var(--duration-fast) ease;
 }
 
 .settings-groups .g-add:active {
@@ -1124,6 +1229,7 @@ button {
 
 @media (hover: hover) and (pointer: fine) {
   .settings-groups .g-add:hover {
+    color: var(--accent);
     background: var(--ghost-fill-active);
   }
 }
@@ -1137,8 +1243,8 @@ button {
 .group-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: end;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
   background: var(--chip-fill);
@@ -1151,7 +1257,7 @@ button {
   font: inherit;
   font-size: 13px;
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
+  background: #29292b;
   border: 1px solid var(--ghost-border);
   border-radius: 9px;
   min-height: var(--editor-control-h);
@@ -1166,11 +1272,11 @@ button {
 
 .group-row .g-name::placeholder,
 .group-row .g-hex::placeholder {
-  color: rgba(229, 229, 229, 0.5);
+  color: #909092;
 }
 
 .group-row.invalid {
-  border-color: rgba(229, 84, 84, 0.75);
+  border-color: #b34b4b;
 }
 
 .group-row .g-name {
@@ -1188,7 +1294,7 @@ button {
   height: var(--editor-icon-size);
   border-radius: 20px;
   border: 1px solid var(--ghost-border);
-  background: rgba(255, 255, 255, 0.06);
+  background: #29292b;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1249,7 +1355,7 @@ button {
   width: 224px;
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
-  background: rgba(24, 24, 27, 0.98);
+  background: #18181b;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   padding: 10px;
   display: flex;
@@ -1270,7 +1376,7 @@ button {
 .group-row .gp-item {
   aspect-ratio: 1;
   border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid #4d4d50;
   position: relative;
   transition: transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast) ease;
 }
@@ -1316,45 +1422,18 @@ button {
   min-height: 15px;
 }
 
-/* The group picker is a custom button + anchored listbox (no native
-   <select> popup, which renders white-on-white in WebView2 on Windows).
-   The field spans its own full-width line under the value row; the listbox
-   is appended in-flow right under the trigger and expands the card. */
-.settings-row .s-group-trigger {
-  width: 100%;
-  min-height: var(--editor-control-h);
-  padding: 8px 30px 8px 11px;
-  border-radius: 9px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--accent);
-  text-align: left;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--ghost-border);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(245,245,247,0.55)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 9px center;
-  background-size: 14px 14px;
-  transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
-}
-
-.settings-row .s-group-trigger:focus {
-  border-color: var(--accent);
-}
-
-.settings-row .s-group-value {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 /* In-flow list anchored under the trigger: it never overlays other
    content, it pushes the rest of the card down. */
+.settings-row .s-group-picker,
+.settings-row .app-picker {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
 .settings-row .s-group-picker {
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
-  background: rgba(20, 20, 22, 0.98);
+  background: #141416;
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -1373,7 +1452,7 @@ button {
 }
 
 .settings-row .s-group-picker::-webkit-scrollbar-thumb {
-  background: rgba(229, 229, 229, 0.2);
+  background: #434345;
   border-radius: 4px;
 }
 
@@ -1436,13 +1515,7 @@ button {
 .settings-actions-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.settings-actions-help {
-  color: var(--ink-dim);
-  font-size: 11.5px;
-  line-height: 1.35;
+  gap: 10px;
 }
 
 .settings-actions-title {
@@ -1460,35 +1533,34 @@ button {
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ink-dim);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(229, 229, 229, 0.16);
+  background: #29292b;
+  border: 1px solid #3b3b3d;
   border-radius: 10px;
   padding: 2px 8px;
   min-width: 24px;
   text-align: center;
 }
 
-.settings-actions #actions-add,
 .settings-actions #actions-group {
   flex: 0 0 auto;
-  min-height: var(--editor-control-h);
-  padding: 0 16px;
-  border-radius: 20px;
-  font-size: 13px;
-  color: var(--accent);
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 17px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
   background: var(--ghost-fill);
   border: 1px solid var(--ghost-border);
-  transition: transform var(--duration-fast) var(--ease-out), background var(--duration-fast) ease;
+  transition: transform var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) ease, color var(--duration-fast) ease;
 }
 
-.settings-actions #actions-add:active,
 .settings-actions #actions-group:active {
   transform: scale(0.96);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .settings-actions #actions-add:hover,
   .settings-actions #actions-group:hover {
+    color: var(--accent);
     background: var(--ghost-fill-active);
   }
 }
@@ -1496,27 +1568,49 @@ button {
 .settings-actions-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
-.settings-actions-empty {
-  border: 1px dashed rgba(229, 229, 229, 0.2);
+/* Add action: a full-width dashed row that doubles as the empty state. */
+#actions-add {
+  width: 100%;
+  min-height: 44px;
+  border: 1px dashed #5c5c5e;
   border-radius: 12px;
-  padding: 16px 14px;
-  font-size: 12.5px;
   color: var(--ink-dim);
-  text-align: center;
-  line-height: 1.5;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: border-color var(--duration-fast) ease, color var(--duration-fast) ease,
+    background var(--duration-fast) ease;
 }
 
-.settings-actions-empty[hidden] {
-  display: none;
+#actions-add svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#actions-add:hover {
+  color: var(--accent);
+  border-color: #939395;
+  background: #262628;
+}
+
+#actions-add:active {
+  background: #303032;
 }
 
 .app-picker {
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
-  background: rgba(20, 20, 22, 0.98);
+  background: #141416;
   overflow: hidden;
 }
 
@@ -1529,7 +1623,7 @@ button {
   border: none;
   border-bottom: 1px solid var(--ghost-border);
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.08);
+  background: #29292b;
   min-height: 42px;
   font-size: 13px;
 }
@@ -1549,7 +1643,7 @@ button {
 }
 
 .app-picker .ap-list::-webkit-scrollbar-thumb {
-  background: rgba(229, 229, 229, 0.2);
+  background: #434345;
   border-radius: 4px;
 }
 
@@ -1582,7 +1676,7 @@ button {
 
 .app-picker .ap-item .ap-path {
   font-size: 11.5px;
-  color: rgba(229, 229, 229, 0.55);
+  color: #8a8a8d;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1591,7 +1685,7 @@ button {
 .app-picker .ap-empty {
   padding: 12px 10px;
   font-size: 13px;
-  color: rgba(229, 229, 229, 0.55);
+  color: #8a8a8d;
   text-align: center;
 }
 
@@ -1599,13 +1693,14 @@ button {
   flex: 0 0 var(--editor-icon-size);
   width: var(--editor-icon-size);
   height: var(--editor-icon-size);
-  border-radius: 20px;
+  border-radius: 10px;
   color: var(--accent);
   font-size: 14px;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background var(--duration-fast) ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1621,7 +1716,7 @@ button {
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 20px 18px;
-  border-top: 1px solid rgba(229, 229, 229, 0.12);
+  border-top: 1px solid #333335;
 }
 
 #settings-error,
@@ -1716,24 +1811,31 @@ button {
     margin-right: 14px;
   }
 
+  /* Narrow windows: the card stacks into full-width lines, with the type
+     and the per-row actions sharing a line under the name. */
+  .settings-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+
   .settings-row-top {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    flex-wrap: wrap;
   }
 
   .settings-row .s-name-field {
-    grid-column: 1 / -1;
+    flex: 1 1 100%;
   }
 
-  .settings-row .s-kind-field {
-    grid-column: 1;
+  .settings-row .s-rail {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 4px;
   }
 
   .settings-row .s-order-controls {
-    grid-column: 2;
-  }
-
-  .settings-row .s-del {
-    grid-column: 3;
+    flex-direction: row;
   }
 
   .settings-row .s-value-row {
@@ -1742,6 +1844,10 @@ button {
 
   .settings-row .s-value-field {
     flex-basis: 100%;
+  }
+
+  .settings-row .s-group-field {
+    flex: 1 1 100%;
   }
 
   .group-row {
@@ -1817,6 +1923,7 @@ button {
   .settings-row,
   .settings-row .s-app-browse,
   .settings-row .s-del,
+  .settings-row .s-kind-opt,
   .settings-row .s-group-trigger,
   .settings-groups,
   .settings-groups .g-add,
@@ -1834,14 +1941,6 @@ button {
   }
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  #settings,
-  #actions {
-    background: #18181b;
-    backdrop-filter: none;
-  }
-}
-
 @media (prefers-contrast: more) {
   #hub,
   #add,
@@ -1854,14 +1953,15 @@ button {
   .settings-list-row,
   .settings-group,
   .settings-row,
-  .settings-row input,
-  .settings-row select,
+  .settings-row input[type="text"],
+  .settings-row .s-kind-group,
   .settings-row .s-group-trigger,
   .settings-row .s-group-picker,
   .settings-groups,
   .group-row,
   .group-row input,
   .app-picker,
+  #actions-add,
   #settings-lang {
     border-color: var(--accent);
   }

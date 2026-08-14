@@ -650,18 +650,13 @@ describe("actions panel", () => {
     expect(document.querySelector("#actions")!.classList.contains("open")).toBe(false);
   });
 
-  it("shows the action count and an empty hint when there are no actions", async () => {
+  it("shows the action count and an add row when there are no actions", async () => {
     await mount({ actions: [] });
     await openOverlay();
     openActions();
     expect(document.querySelector(".settings-actions-count")!.textContent).toBe("0");
-    expect(
-      (document.querySelector(".settings-actions-empty") as HTMLElement).hidden,
-    ).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>("#actions-add")).not.toBeNull();
     document.querySelector<HTMLButtonElement>("#actions-add")!.click();
-    expect(
-      (document.querySelector(".settings-actions-empty") as HTMLElement).hidden,
-    ).toBe(true);
     expect(document.querySelector(".settings-actions-count")!.textContent).toBe("1");
   });
 
@@ -684,20 +679,26 @@ describe("actions panel", () => {
         hidden: (el as HTMLElement).hidden,
       }));
     expect(rowOrder(rows[1])).toEqual([
-      { cls: "action-field s-value-field", hidden: false },
+      { cls: "s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: true },
+      { cls: "s-group-field", hidden: false },
+      { cls: "s-del", hidden: false },
     ]);
     expect(rowOrder(rows[2])).toEqual([
-      { cls: "action-field s-value-field", hidden: false },
+      { cls: "s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: true },
+      { cls: "s-group-field", hidden: false },
+      { cls: "s-del", hidden: false },
     ]);
     expect(rowOrder(rows[0])).toEqual([
-      { cls: "action-field s-value-field", hidden: false },
+      { cls: "s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: false },
+      { cls: "s-group-field", hidden: false },
+      { cls: "s-del", hidden: false },
     ]);
     for (const row of rows) {
-      // The group field is its own line under the value row, with the
-      // anchored listbox as its last child (below the trigger).
+      // The group field rides the value line, with the anchored listbox as
+      // its last child (below the trigger).
       expect(
         row
           .querySelector<HTMLElement>(".s-group-field")!
@@ -712,11 +713,10 @@ describe("actions panel", () => {
     });
     await openOverlay();
     openActions();
-    const kind = document.querySelector<HTMLSelectElement>(".s-kind")!;
+    const url = document.querySelector<HTMLInputElement>('input.s-kind[value="url"]')!;
     const browse = document.querySelector<HTMLButtonElement>(".s-app-browse")!;
     expect(browse.hidden).toBe(false);
-    kind.value = "url";
-    kind.dispatchEvent(new Event("change", { bubbles: true }));
+    url.click();
     expect(browse.hidden).toBe(true);
     expect(
       document
@@ -849,8 +849,7 @@ describe("groups", () => {
     expect(names).toEqual(["Work", "Dev"]);
     expect(document.querySelector(".g-name-label")!.textContent).toBe("Name");
     expect(document.querySelector(".g-color-label")!.textContent).toBe("Color");
-    expect(document.querySelector(".s-name-label")!.textContent).toBe("Name");
-    expect(document.querySelector(".s-value-label")!.textContent).toBe("Value");
+    expect(document.querySelector(".s-kind-group")!.getAttribute("aria-label")).toBe("Type");
     const trigger = document.querySelector<HTMLElement>(".s-group-trigger")!;
     expect(trigger.dataset.value).toBe("work");
     const listbox = document.querySelector<HTMLElement>(".s-group-picker")!;

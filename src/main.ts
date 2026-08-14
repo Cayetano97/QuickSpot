@@ -889,24 +889,25 @@ function rebuildActionsRows(): void {
   group.type = "button";
   group.id = "actions-group";
   group.textContent = t(currentLanguage, "groupActions");
-  const add = document.createElement("button");
-  add.type = "button";
-  add.id = "actions-add";
-  add.textContent = t(currentLanguage, "addAction");
-  header.append(title, count, group, add);
-
-  const help = document.createElement("p");
-  help.className = "settings-actions-help";
-  help.textContent = t(currentLanguage, "reorderHint");
+  header.append(title, count, group);
 
   const list = document.createElement("div");
   list.className = "settings-actions-list";
   list.setAttribute("role", "list");
-  const hint = document.createElement("div");
-  hint.className = "settings-actions-empty";
-  hint.hidden = true;
 
-  block.append(header, help, list, hint);
+  const add = document.createElement("button");
+  add.type = "button";
+  add.id = "actions-add";
+  const addIcon = document.createElement("span");
+  addIcon.className = "a-add-icon";
+  addIcon.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>';
+  const addLabel = document.createElement("span");
+  addLabel.className = "a-add-label";
+  addLabel.textContent = t(currentLanguage, "addAction");
+  add.append(addIcon, addLabel);
+
+  block.append(header, list, add);
   actionsAdd = add;
 
   group.addEventListener("click", () => {
@@ -923,16 +924,19 @@ function rebuildActionsRows(): void {
 
   for (const a of actions) list.appendChild(buildSettingsRow(a));
   afterActionsChanged();
+  syncHasGroups();
   setActionsTab("actions", false);
   localizeActionsSection();
 }
 
-/** Keep the actions list header count, empty hint and add button in sync. */
+/** The group picker rides the value line only once groups exist. */
+function syncHasGroups(): void {
+  const panel = actionsRows.querySelector<HTMLElement>("#actions-panel");
+  panel?.classList.toggle("has-groups", groupRows().length > 0);
+}
+
+/** Keep the actions list header count and add button in sync. */
 function afterActionsChanged(): void {
-  const list = actionsRows.querySelector<HTMLElement>(".settings-actions-list");
-  const hint = actionsRows.querySelector<HTMLElement>(".settings-actions-empty");
-  if (!list) return;
-  if (hint) hint.hidden = list.querySelectorAll(".settings-row").length > 0;
   syncActionsCount();
   syncActionRowMetadata();
 }
@@ -953,12 +957,10 @@ function localizeActionsSection(): void {
   const L = currentLanguage;
   const title = actionsRows.querySelector<HTMLElement>(".settings-actions-title");
   if (title) title.textContent = t(L, "actionsLabel");
-  const hint = actionsRows.querySelector<HTMLElement>(".settings-actions-empty");
-  if (hint) hint.textContent = t(L, "noActions");
-  const help = actionsRows.querySelector<HTMLElement>(".settings-actions-help");
-  if (help) help.textContent = t(L, "reorderHint");
   const group = actionsRows.querySelector<HTMLElement>("#actions-group");
   if (group) group.textContent = t(L, "groupActions");
+  const addLabel = actionsRows.querySelector<HTMLElement>(".a-add-label");
+  if (addLabel) addLabel.textContent = t(L, "addAction");
   syncActionsCount();
   syncActionRowMetadata();
 }
@@ -1494,6 +1496,7 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
       }
     }
     refreshAllGroupPickers();
+    syncHasGroups();
   });
 
   return row;
@@ -1546,14 +1549,25 @@ function groupTriggerLabel(value: string): string {
   return name || t(currentLanguage, "noGroup");
 }
 
-/** Reflect the current value on the trigger: text and accessible name. */
+/** Color of the group the trigger points at ("" = none). */
+function groupTriggerColor(value: string): string {
+  if (!value) return "";
+  const row = groupRows().find((g) => g.dataset.id === value);
+  const color = row?.querySelector<HTMLInputElement>(".g-hex")?.value.trim() ?? "";
+  return isHexColor(color) ? color : "";
+}
+
+/** Reflect the current value on the trigger: text, group dot and accessible name. */
 function syncGroupTrigger(trigger: HTMLElement): void {
-  const label = groupTriggerLabel(trigger.dataset.value ?? "");
+  const value = trigger.dataset.value ?? "";
+  const label = groupTriggerLabel(value);
   trigger.querySelector<HTMLElement>(".s-group-value")!.textContent = label;
   trigger.setAttribute(
     "aria-label",
     `${t(currentLanguage, "actionGroupLabel")}: ${label}`,
   );
+  const dot = trigger.querySelector<HTMLElement>(".s-group-dot");
+  if (dot) dot.style.background = groupTriggerColor(value);
 }
 
 /** Per-popup refresh callbacks keyed by their listbox element. */
@@ -1574,9 +1588,11 @@ function buildGroupPicker(host: HTMLElement, initial: string): HTMLElement {
   trigger.setAttribute("aria-haspopup", "listbox");
   trigger.setAttribute("aria-expanded", "false");
   trigger.setAttribute("aria-controls", listId);
+  const dot = document.createElement("span");
+  dot.className = "s-group-dot";
   const valueSpan = document.createElement("span");
   valueSpan.className = "s-group-value";
-  trigger.appendChild(valueSpan);
+  trigger.append(dot, valueSpan);
   host.appendChild(trigger);
 
   const listbox = document.createElement("div");
@@ -1747,6 +1763,7 @@ function rebuildGroupsEditor(): HTMLElement {
     const row = buildGroupRow(id, "", GROUP_PALETTE[0], true);
     list.appendChild(row);
     refreshAllGroupPickers();
+    syncHasGroups();
     row.querySelector<HTMLInputElement>(".g-name")?.focus();
   });
   return block;
@@ -1759,6 +1776,40 @@ function localizeGroupsEditor(): void {
   if (title) title.textContent = t(L, "groupsLabel");
   if (add) add.textContent = t(L, "addGroup");
   for (const row of groupRows()) localizeGroupRow(row);
+}
+
+let kindGroupSeq = 0;
+
+/** Segmented radio group for the action kind (URL / Command / App). */
+function buildKindGroup(kind: Action["kind"]): HTMLElement {
+  const L = currentLanguage;
+  const group = document.createElement("div");
+  group.className = "s-kind-group";
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", t(L, "actionTypeLabel"));
+  const name = `k-${++kindGroupSeq}`;
+  for (const k of ["url", "command", "app"] as const) {
+    const label = document.createElement("label");
+    label.className = "s-kind-opt";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.className = "s-kind";
+    radio.name = name;
+    radio.value = k;
+    radio.checked = k === kind;
+    radio.tabIndex = k === kind ? 0 : -1;
+    const icon = document.createElement("span");
+    icon.className = "s-kind-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = KIND_ICONS[k];
+    const text = document.createElement("span");
+    text.className = "s-kind-text";
+    text.textContent = t(L, KIND_LABEL_KEYS[k]);
+    label.append(radio, icon, text);
+    label.classList.toggle("on", k === kind);
+    group.appendChild(label);
+  }
+  return group;
 }
 
 function buildSettingsRow(a: Action): HTMLElement {
@@ -1777,30 +1828,15 @@ function buildSettingsRow(a: Action): HTMLElement {
   name.value = a.name;
   name.placeholder = t(L, "namePlaceholder");
   name.setAttribute("aria-label", t(L, "namePlaceholder"));
-  const nameField = document.createElement("label");
-  nameField.className = "action-field s-name-field";
-  const nameLabel = document.createElement("span");
-  nameLabel.className = "field-label s-name-label";
-  nameLabel.textContent = t(L, "actionNameLabel");
-  nameField.append(nameLabel, name);
+  const nameField = document.createElement("div");
+  nameField.className = "s-name-field";
+  nameField.appendChild(name);
 
-  const kind = document.createElement("select");
-  kind.className = "s-kind";
-  kind.setAttribute("aria-label", t(L, "actionTypeLabel"));
-  for (const k of ["url", "command", "app"] as const) {
-    const opt = document.createElement("option");
-    opt.value = k;
-    opt.textContent = t(L, KIND_LABEL_KEYS[k]);
-    kind.appendChild(opt);
-  }
-  kind.value = a.kind;
-  const kindField = document.createElement("label");
-  kindField.className = "action-field s-kind-field";
-  const kindLabel = document.createElement("span");
-  kindLabel.className = "field-label s-kind-label";
-  kindLabel.textContent = t(L, "actionTypeLabel");
-  kindField.append(kindLabel, kind);
+  const kindGroup = buildKindGroup(a.kind);
 
+  // Right rail: reorder and delete, stacked.
+  const rail = document.createElement("div");
+  rail.className = "s-rail";
   const order = document.createElement("div");
   order.className = "s-order-controls";
   order.setAttribute("role", "toolbar");
@@ -1834,17 +1870,16 @@ function buildSettingsRow(a: Action): HTMLElement {
     afterActionsChanged();
   });
 
+  rail.append(order);
+
   const value = document.createElement("input");
   value.type = "text";
   value.className = "s-value";
   value.value = a.value;
   value.setAttribute("aria-label", t(L, "actionValueLabel"));
-  const valueField = document.createElement("label");
-  valueField.className = "action-field s-value-field";
-  const valueLabel = document.createElement("span");
-  valueLabel.className = "field-label s-value-label";
-  valueLabel.textContent = t(L, "actionValueLabel");
-  valueField.append(valueLabel, value);
+  const valueField = document.createElement("div");
+  valueField.className = "s-value-field";
+  valueField.appendChild(value);
 
   const valueWrap = document.createElement("div");
   valueWrap.className = "s-value-row";
@@ -1852,17 +1887,15 @@ function buildSettingsRow(a: Action): HTMLElement {
   const browse = document.createElement("button");
   browse.type = "button";
   browse.className = "s-app-browse";
-  browse.textContent = t(L, "browseApps");
+  browse.setAttribute("aria-label", t(L, "browseApps"));
+  browse.title = t(L, "browseApps");
+  browse.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>';
 
-  // The group picker lives on its own full-width line under the value row,
-  // so the anchored listbox (appended inside the host by buildGroupPicker)
-  // drops directly below its trigger and expands the card downward.
+  // The group picker rides the value line, so the anchored listbox drops
+  // directly below its trigger and expands the card downward.
   const groupField = document.createElement("div");
-  groupField.className = "action-field s-group-field";
-  const groupLabel = document.createElement("span");
-  groupLabel.className = "field-label s-group-label";
-  groupLabel.textContent = t(L, "actionGroupLabel");
-  groupField.appendChild(groupLabel);
+  groupField.className = "s-group-field";
   buildGroupPicker(groupField, a.group ?? "");
 
   // The browser executable is no longer edited in the UI, but a value set
@@ -1870,12 +1903,28 @@ function buildSettingsRow(a: Action): HTMLElement {
   row.dataset.browser = a.browser ?? "";
 
   const syncKind = () => {
-    value.placeholder = kindValuePlaceholder(kind.value);
-    browse.hidden = kind.value !== "app";
-    row.classList.toggle("kind-app", kind.value === "app");
+    const k = row.querySelector<HTMLInputElement>(".s-kind:checked")?.value ?? "url";
+    value.placeholder = kindValuePlaceholder(k);
+    browse.hidden = k !== "app";
+    row.classList.toggle("kind-app", k === "app");
   };
-  kind.addEventListener("change", syncKind);
-  syncKind();
+
+  // Selecting a kind keeps the group's roving tabindex on the chosen radio
+  // and restyles the segments; the radios move natively with the arrows.
+  kindGroup.addEventListener("change", (e) => {
+    const radio = e.target as HTMLInputElement;
+    if (!radio.classList.contains("s-kind")) return;
+    for (const r of kindGroup.querySelectorAll<HTMLInputElement>(".s-kind")) r.tabIndex = -1;
+    radio.tabIndex = 0;
+    for (const opt of kindGroup.querySelectorAll<HTMLElement>(".s-kind-opt")) {
+      opt.classList.toggle(
+        "on",
+        opt.querySelector<HTMLInputElement>(".s-kind")?.checked ?? false,
+      );
+    }
+    syncKind();
+  });
+
   for (const field of [name, value]) {
     field.addEventListener("input", () => {
       row.classList.remove("invalid");
@@ -1892,10 +1941,11 @@ function buildSettingsRow(a: Action): HTMLElement {
   up.addEventListener("click", () => move(-1, up));
   down.addEventListener("click", () => move(1, down));
 
-  top.append(nameField, kindField, order, del);
-  valueWrap.append(valueField, browse);
-  row.append(top, valueWrap, groupField);
+  top.append(nameField, kindGroup);
+  valueWrap.append(valueField, browse, groupField, del);
+  row.append(top, rail, valueWrap);
   attachAppPicker(row, value, name);
+  syncKind();
   return row;
 }
 
@@ -1922,18 +1972,21 @@ function localizeSettingsRow(row: HTMLElement): void {
   row.setAttribute("aria-label", name.value.trim() || t(L, "namePlaceholder"));
   name.placeholder = t(L, "namePlaceholder");
   name.setAttribute("aria-label", t(L, "namePlaceholder"));
-  row.querySelector<HTMLElement>(".s-name-label")!.textContent = t(L, "actionNameLabel");
-  const kind = row.querySelector<HTMLSelectElement>(".s-kind");
-  if (kind) {
-    kind.setAttribute("aria-label", t(L, "actionTypeLabel"));
-    for (const opt of Array.from(kind.options)) {
-      opt.textContent = t(L, KIND_LABEL_KEYS[opt.value as Action["kind"]]);
+  const kindGroup = row.querySelector<HTMLElement>(".s-kind-group");
+  if (kindGroup) {
+    kindGroup.setAttribute("aria-label", t(L, "actionTypeLabel"));
+    for (const opt of kindGroup.querySelectorAll<HTMLElement>(".s-kind-opt")) {
+      const radio = opt.querySelector<HTMLInputElement>(".s-kind");
+      const text = opt.querySelector<HTMLElement>(".s-kind-text");
+      if (radio && text) {
+        text.textContent = t(L, KIND_LABEL_KEYS[radio.value as Action["kind"]]);
+      }
     }
   }
-  value.placeholder = kindValuePlaceholder(kind?.value ?? "url");
+  value.placeholder = kindValuePlaceholder(
+    row.querySelector<HTMLInputElement>(".s-kind:checked")?.value ?? "url",
+  );
   value.setAttribute("aria-label", t(L, "actionValueLabel"));
-  row.querySelector<HTMLElement>(".s-kind-label")!.textContent = t(L, "actionTypeLabel");
-  row.querySelector<HTMLElement>(".s-value-label")!.textContent = t(L, "actionValueLabel");
   const groupTrigger = row.querySelector<HTMLElement>(".s-group-trigger");
   if (groupTrigger) {
     syncGroupTrigger(groupTrigger);
@@ -1942,7 +1995,6 @@ function localizeSettingsRow(row: HTMLElement): void {
       t(L, "groupSelectAria"),
     );
   }
-  row.querySelector<HTMLElement>(".s-group-label")!.textContent = t(L, "actionGroupLabel");
   del.setAttribute(
     "aria-label",
     t(L, "deleteAction", { name: name.value || t(L, "namePlaceholder") }),
@@ -1951,7 +2003,10 @@ function localizeSettingsRow(row: HTMLElement): void {
   up.setAttribute("aria-label", t(L, "moveActionUp", { name: actionName }));
   down.setAttribute("aria-label", t(L, "moveActionDown", { name: actionName }));
   const browse = row.querySelector<HTMLButtonElement>(".s-app-browse");
-  if (browse) browse.textContent = t(L, "browseApps");
+  if (browse) {
+    browse.setAttribute("aria-label", t(L, "browseApps"));
+    browse.title = t(L, "browseApps");
+  }
   const apSearch = row.querySelector<HTMLInputElement>(".ap-search");
   if (apSearch) apSearch.placeholder = t(L, "appSearchPlaceholder");
 }
@@ -1961,7 +2016,8 @@ function collectSettingsActions(): Action[] {
   const out: Action[] = [];
   for (const row of actionsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     const name = row.querySelector<HTMLInputElement>(".s-name")!.value.trim();
-    const kind = row.querySelector<HTMLSelectElement>(".s-kind")!.value as Action["kind"];
+    const kind = (row.querySelector<HTMLInputElement>(".s-kind:checked")?.value ??
+      "url") as Action["kind"];
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
     const browser = row.dataset.browser ?? "";
     const group = row.querySelector<HTMLElement>(".s-group-trigger")?.dataset.value ?? "";
