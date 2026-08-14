@@ -76,6 +76,13 @@ pub fn run() {
         .manage(DragFlag(Arc::new(AtomicBool::new(false))))
         .setup(|app| {
             // Never show in the Dock / Cmd-Tab, even with the overlay open.
+            //
+            // In the installed .app the real work is done at bundle level by
+            // `LSUIElement` (src-tauri/Info.plist), which macOS honours before
+            // Launch Services ever creates a Dock slot. The runtime policy
+            // here is the fallback for `tauri dev`, where the raw binary runs
+            // with no Info.plist: without it the dev build would get a Dock
+            // icon the moment it is activated.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 

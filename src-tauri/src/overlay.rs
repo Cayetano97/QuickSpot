@@ -161,6 +161,12 @@ pub fn show_overlay(app: &AppHandle, win: &WebviewWindow) {
     let _ = win.set_ignore_cursor_events(false);
     let _ = win.show();
     let _ = win.set_focus();
+    // Focus activates the app; on macOS a runtime-accessory app can then show
+    // a Dock icon for as long as it stays active. Re-asserting the policy
+    // right after focus keeps it out. (For the installed .app this is a
+    // no-op: LSUIElement in the Info.plist means no Dock slot exists at all.)
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     app.state::<Overlay>().set(Phase::Shown);
     emit(app, "overlay-open");
 }
