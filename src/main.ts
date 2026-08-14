@@ -66,6 +66,7 @@ let savedLanguage: StoredLanguage = "system";
 let langDraft: StoredLanguage | null = null;
 let currentLanguage: Language = resolveLanguage(savedLanguage);
 let magnifyEnabled = true;
+let iconsEnabled = true;
 let autostartAtOpen = false;
 
 const root = document.querySelector<HTMLElement>("#overlay")!;
@@ -89,7 +90,9 @@ const settingsTitle = document.querySelector<HTMLElement>("#settings-title")!;
 const settingsClose = document.querySelector<HTMLButtonElement>("#settings-close")!;
 const settingsLanguageLabel = document.querySelector<HTMLElement>("#settings-language-label")!;
 const settingsDockLabel = document.querySelector<HTMLElement>("#settings-dock-label")!;
+const settingsIconsLabel = document.querySelector<HTMLElement>("#settings-icons-label")!;
 const settingsMagnify = document.querySelector<HTMLInputElement>("#settings-magnify")!;
+const settingsIcons = document.querySelector<HTMLInputElement>("#settings-icons")!;
 const settingsAutostart = document.querySelector<HTMLInputElement>("#settings-autostart")!;
 const settingsAutostartLabel = document.querySelector<HTMLElement>("#settings-autostart-label")!;
 const settingsUpdateLabel = document.querySelector<HTMLElement>("#settings-update-label")!;
@@ -358,6 +361,8 @@ function localizeAll(): void {
   settingsLanguageLabel.textContent = t(L, "languageLabel");
   settingsDockLabel.textContent = t(L, "magnifyLabel");
   settingsMagnify.setAttribute("aria-label", t(L, "magnifyLabel"));
+  settingsIconsLabel.textContent = t(L, "iconsLabel");
+  settingsIcons.setAttribute("aria-label", t(L, "iconsLabel"));
   settingsAutostartLabel.textContent = t(L, "autostartLabel");
   settingsAutostart.setAttribute("aria-label", t(L, "autostartLabel"));
   settingsUpdateLabel.textContent = t(L, "checkForUpdates");
@@ -391,6 +396,12 @@ function refilter(): void {
   filtered = filterActions(actions, queryText);
   selected = filtered.length > 0 ? 0 : -1;
   syncChips();
+}
+
+/** Reflect the icon preference on the launcher: `no-icons` hides the chip
+ * icons via CSS and frees the pill for the label. */
+function syncIcons(): void {
+  root.classList.toggle("no-icons", !iconsEnabled);
 }
 
 /** The group of an action by config id, or undefined when unset/unknown. */
@@ -855,6 +866,7 @@ function openSettings(): void {
   settingsSave.disabled = false;
   langSelect.value = langDraft ?? savedLanguage;
   settingsMagnify.checked = magnifyEnabled;
+  settingsIcons.checked = iconsEnabled;
   settingsAutostart.checked = autostartAtOpen;
   syncSettingsUpdateBtn();
   void isEnabled()
@@ -2117,6 +2129,7 @@ async function saveSettings(): Promise<void> {
       groups,
       language: language === "system" ? null : language,
       magnify: settingsMagnify.checked,
+      showIcons: settingsIcons.checked,
     });
     closeSettings();
   } catch (err) {
@@ -2163,6 +2176,7 @@ async function saveActions(): Promise<void> {
       groups: collectGroupsFromRows(),
       language: savedLanguage === "system" ? null : savedLanguage,
       magnify: magnifyEnabled,
+      showIcons: iconsEnabled,
     });
     closeActions();
   } catch (err) {
@@ -2178,6 +2192,7 @@ interface ConfigPayload {
   groups: Group[];
   language: string | null;
   magnify: boolean;
+  showIcons: boolean;
 }
 
 async function init(): Promise<void> {
@@ -2205,6 +2220,8 @@ async function init(): Promise<void> {
       groups = event.payload.groups ?? [];
       savedLanguage = (event.payload.language ?? "system") as StoredLanguage;
       magnifyEnabled = event.payload.magnify;
+      iconsEnabled = event.payload.showIcons;
+      syncIcons();
       applyLanguage();
       if (actionsOpen) rebuildActionsRows();
       else refilter();
@@ -2216,6 +2233,8 @@ async function init(): Promise<void> {
   groups = cfg.groups ?? [];
   savedLanguage = (cfg.language ?? "system") as StoredLanguage;
   magnifyEnabled = cfg.magnify;
+  iconsEnabled = cfg.showIcons;
+  syncIcons();
   applyLanguage();
   refilter();
 

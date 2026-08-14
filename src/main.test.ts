@@ -108,6 +108,13 @@ function installDom(): void {
               </span>
             </label>
             <label class="settings-list-row">
+              <span class="settings-row-label" id="settings-icons-label">Show action icons</span>
+              <span class="switch">
+                <input id="settings-icons" type="checkbox" />
+                <span class="switch-track"></span>
+              </span>
+            </label>
+            <label class="settings-list-row">
               <span class="settings-row-label" id="settings-autostart-label">Launch at login</span>
               <span class="switch">
                 <input id="settings-autostart" type="checkbox" />
@@ -150,6 +157,7 @@ async function mount(config?: {
   groups?: Group[];
   language?: string | null;
   magnify?: boolean;
+  showIcons?: boolean;
 }): Promise<void> {
   vi.resetModules();
   for (const key of Object.keys(eventHandlers)) delete eventHandlers[key];
@@ -161,6 +169,7 @@ async function mount(config?: {
         groups: config?.groups ?? [],
         language: config?.language ?? null,
         magnify: config?.magnify ?? true,
+        showIcons: config?.showIcons ?? true,
       });
     }
     if (cmd === "list_apps") return Promise.resolve(INSTALLED_APPS);
@@ -251,6 +260,15 @@ describe("rendering", () => {
 
   it("shows the placeholder in the query mirror until the user types", () => {
     expect(document.querySelector("#query-mirror")!.textContent).toBe("Type to search...");
+  });
+
+  it("keeps the chip icons by default", () => {
+    expect(document.querySelector("#overlay")!.classList.contains("no-icons")).toBe(false);
+  });
+
+  it("hides the chip icons when showIcons is off in the config", async () => {
+    await mount({ showIcons: false });
+    expect(document.querySelector("#overlay")!.classList.contains("no-icons")).toBe(true);
   });
 });
 
@@ -367,11 +385,13 @@ describe("overlay lifecycle", () => {
         actions: [{ name: "New", kind: "url", value: "https://new.dev" }],
         language: "es",
         magnify: false,
+        showIcons: false,
       },
     });
     expect(chipLabels()[0]).toBe("New");
     expect(visibleChips()).toBe(1);
     expect(document.documentElement.lang).toBe("es");
+    expect(document.querySelector("#overlay")!.classList.contains("no-icons")).toBe(true);
   });
 });
 
@@ -402,8 +422,21 @@ describe("settings panel", () => {
       groups: [],
       language: null,
       magnify: false,
+      showIcons: true,
     });
     expect(document.querySelector("#settings")!.classList.contains("open")).toBe(false);
+  });
+
+  it("turning off Show action icons saves showIcons false", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    document.querySelector<HTMLInputElement>("#settings-icons")!.checked = false;
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({ showIcons: false }),
+    );
   });
 
   it("Save enables autostart when the toggle is on and the OS state is off", async () => {
@@ -595,6 +628,7 @@ describe("actions panel", () => {
       groups: [],
       language: null,
       magnify: true,
+      showIcons: true,
     });
     expect(document.querySelector("#actions")!.classList.contains("open")).toBe(false);
   });
@@ -877,6 +911,7 @@ describe("groups", () => {
       groups: GROUPS,
       language: null,
       magnify: true,
+      showIcons: true,
     });
   });
 
@@ -1048,7 +1083,7 @@ describe("groups", () => {
     document.querySelector<HTMLButtonElement>("#settings-save")!.click();
     await flush();
     eventHandlers["config-reloaded"]?.({
-      payload: { actions: [], groups: GROUPS, language: "es", magnify: true },
+      payload: { actions: [], groups: GROUPS, language: "es", magnify: true, showIcons: true },
     });
     await flush();
     openActions();
@@ -1163,7 +1198,7 @@ describe("group actions button", () => {
     document.querySelector<HTMLButtonElement>("#settings-save")!.click();
     await flush();
     eventHandlers["config-reloaded"]?.({
-      payload: { actions: INTERLEAVED, groups: GROUPS, language: "es", magnify: true },
+      payload: { actions: INTERLEAVED, groups: GROUPS, language: "es", magnify: true, showIcons: true },
     });
     await flush();
     openActions();

@@ -56,13 +56,15 @@ pub enum ConfigError {
 /// The parsed config: the action list, the optional group definitions (a
 /// group is just a named color bucket actions can reference), an optional
 /// language override (`"system"` | `"en"` | `"es"`; `None` = follow the OS
-/// language), and the dock hover magnification flag (defaults to on).
+/// language), the dock hover magnification flag (defaults to on), and
+/// whether the action chips show their kind icons (defaults to on).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Config {
     pub actions: Vec<Action>,
     pub groups: Vec<Group>,
     pub language: Option<String>,
     pub magnify: bool,
+    pub show_icons: bool,
 }
 
 impl Config {
@@ -72,6 +74,7 @@ impl Config {
             groups: Vec::new(),
             language: None,
             magnify: true,
+            show_icons: true,
         }
     }
 }
@@ -181,11 +184,13 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
         _ => None,
     };
     let magnify = root.get("magnify").and_then(|v| v.as_bool()).unwrap_or(true);
+    let show_icons = root.get("showIcons").and_then(|v| v.as_bool()).unwrap_or(true);
     Ok(Config {
         actions: out,
         groups,
         language,
         magnify,
+        show_icons,
     })
 }
 
@@ -236,8 +241,8 @@ pub fn sanitize_groups(groups: Vec<Group>) -> Vec<Group> {
 
 /// Write the config back to `path` as pretty JSON (camelCase, optional
 /// fields omitted). `language: None` (system default) omits the field; so
-/// does `magnify: true`, since on is the default; an empty group list is
-/// omitted too.
+/// does `magnify: true` or `showIcons: true`, since on is the default; an
+/// empty group list is omitted too.
 pub fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     let mut root = serde_json::json!({ "actions": sanitize(config.actions.clone()) });
     if !config.groups.is_empty() {
@@ -249,6 +254,9 @@ pub fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     }
     if !config.magnify {
         root["magnify"] = serde_json::Value::Bool(false);
+    }
+    if !config.show_icons {
+        root["showIcons"] = serde_json::Value::Bool(false);
     }
     let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
     std::fs::write(path, text).map_err(|e| e.to_string())
@@ -398,10 +406,43 @@ mod tests {
             groups: Vec::new(),
             language: None,
             magnify: false,
+            show_icons: true,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"magnify\": false"));
+        assert_eq!(load_from(&path), config);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn show_icons_defaults_to_true() {
+        let config = parse_config(r#"{"actions":[]}"#).unwrap();
+        assert!(config.show_icons);
+    }
+
+    #[test]
+    fn show_icons_is_parsed_when_present() {
+        let off = parse_config(r#"{"showIcons":false,"actions":[]}"#).unwrap();
+        assert!(!off.show_icons);
+        let on = parse_config(r#"{"showIcons":true,"actions":[]}"#).unwrap();
+        assert!(on.show_icons);
+    }
+
+    #[test]
+    fn show_icons_is_written_only_when_disabled() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("quickspot-save-icons-{}.json", std::process::id()));
+        let config = Config {
+            actions: vec![action("Vercel", "https://vercel.com")],
+            groups: Vec::new(),
+            language: None,
+            magnify: true,
+            show_icons: false,
+        };
+        save_to(&path, &config).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"showIcons\": false"));
         assert_eq!(load_from(&path), config);
         let _ = std::fs::remove_file(&path);
     }
@@ -447,6 +488,7 @@ mod tests {
             groups: Vec::new(),
             language: Some("es".into()),
             magnify: false,
+            show_icons: false,
         };
         save_to(&path, &original).unwrap();
         assert_eq!(load_from(&path), original);
@@ -462,6 +504,7 @@ mod tests {
             groups: Vec::new(),
             language: None,
             magnify: true,
+            show_icons: true,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -569,6 +612,7 @@ mod tests {
             groups: vec![group("work", "Work", "#5e9eff")],
             language: None,
             magnify: true,
+            show_icons: true,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();

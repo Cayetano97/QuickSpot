@@ -14,7 +14,8 @@ use crate::{AppState, DragFlag};
 
 /// What the webview gets on boot and after every reload: the action list,
 /// the group definitions, the language override (`null` = follow the OS
-/// language), and whether the dock hover magnification is enabled.
+/// language), whether the dock hover magnification is enabled, and whether
+/// the action chips show their kind icons.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigPayload {
@@ -22,6 +23,7 @@ pub struct ConfigPayload {
     pub groups: Vec<Group>,
     pub language: Option<String>,
     pub magnify: bool,
+    pub show_icons: bool,
 }
 
 impl From<&config::Config> for ConfigPayload {
@@ -31,6 +33,7 @@ impl From<&config::Config> for ConfigPayload {
             groups: c.groups.clone(),
             language: c.language.clone(),
             magnify: c.magnify,
+            show_icons: c.show_icons,
         }
     }
 }
@@ -92,9 +95,9 @@ pub fn reload_config(app: AppHandle) {
     let _ = app.emit("config-reloaded", payload);
 }
 
-/// Persist the settings panel's actions + groups + language + magnify
-/// toggle to the config file, then reload + broadcast (the webview
-/// re-filters/re-localizes on the sanitized payload).
+/// Persist the settings panel's actions + groups + language + magnify +
+/// showIcons toggles to the config file, then reload + broadcast (the
+/// webview re-filters/re-localizes on the sanitized payload).
 #[tauri::command]
 pub fn save_config(
     app: AppHandle,
@@ -102,6 +105,7 @@ pub fn save_config(
     groups: Vec<Group>,
     language: Option<String>,
     magnify: bool,
+    show_icons: bool,
 ) -> Result<(), String> {
     let state = app.state::<AppState>();
     let cfg = config::Config {
@@ -109,6 +113,7 @@ pub fn save_config(
         groups,
         language,
         magnify,
+        show_icons,
     };
     config::save_to(&state.config_path, &cfg)?;
     reload_config(app);

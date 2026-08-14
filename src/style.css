@@ -490,6 +490,17 @@ button {
   text-overflow: ellipsis;
 }
 
+/* Icon-less chips: the kind icon disappears and the label takes the freed
+   space, staying optically centered in the pill (10px breathing each side
+   inside the 132px chip). */
+#overlay.no-icons .chip-icon {
+  display: none;
+}
+
+#overlay.no-icons .chip .chip-label {
+  max-width: 110px;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .chip:hover {
     background: var(--ghost-fill-active);

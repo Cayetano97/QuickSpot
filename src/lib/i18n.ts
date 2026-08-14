@@ -16,6 +16,7 @@ interface Dict {
   languageLabel: string;
   languageSystem: string;
   magnifyLabel: string;
+  iconsLabel: string;
   autostartLabel: string;
   addAction: string;
   save: string;
@@ -89,6 +90,7 @@ const en: Dict = {
   languageLabel: "Language",
   languageSystem: "System default",
   magnifyLabel: "Magnify on hover",
+  iconsLabel: "Show action icons",
   autostartLabel: "Launch at login",
   addAction: "Add action",
   save: "Save",
@@ -162,6 +164,7 @@ const es: Dict = {
   languageLabel: "Idioma",
   languageSystem: "Idioma del sistema",
   magnifyLabel: "Ampliar al pasar el ratón",
+  iconsLabel: "Mostrar iconos de acciones",
   autostartLabel: "Iniciar con el sistema operativo",
   addAction: "Añadir acción",
   save: "Guardar",
