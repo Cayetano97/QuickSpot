@@ -29,6 +29,23 @@ pub struct AppState {
 /// Set while the grip is dragging; the clamp watchdog reads it.
 pub struct DragFlag(pub Arc<AtomicBool>);
 
+/// macOS: use a Login Item via AppleScript instead of a LaunchAgent plist.
+/// Hand-dropped LaunchAgent plists are unreliable on modern macOS (silently
+/// not loaded at login, never shown in System Settings -> Login Items, and
+/// they point at the raw binary inside the bundle). Login Items launch the
+/// .app through LaunchServices and are the supported mechanism.
+#[cfg(target_os = "macos")]
+fn autostart_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri_plugin_autostart::Builder::new()
+        .macos_launcher(tauri_plugin_autostart::MacosLauncher::AppleScript)
+        .build()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn autostart_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri_plugin_autostart::Builder::new().build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -36,7 +53,7 @@ pub fn run() {
             // A second launch focuses/shows the existing instance.
             overlay::open(app);
         }))
-        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(autostart_plugin())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -54,6 +71,19 @@ pub fn run() {
             // Never show in the Dock / Cmd-Tab, even with the overlay open.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // Remove the legacy LaunchAgent plist written by earlier
+            // autostart implementations; login items are used now, and a
+            // stale plist would double-launch the app at login.
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(home) = std::env::var_os("HOME") {
+                    let agents = std::path::PathBuf::from(home).join("Library/LaunchAgents");
+                    for name in ["QuickSpot.plist", "quickspot.plist"] {
+                        let _ = std::fs::remove_file(agents.join(name));
+                    }
+                }
+            }
 
             // Config lives in the per-user config directory (outside the
             // repo, so a settings save never trips the dev server's
