@@ -92,6 +92,8 @@ const settingsDockLabel = document.querySelector<HTMLElement>("#settings-dock-la
 const settingsMagnify = document.querySelector<HTMLInputElement>("#settings-magnify")!;
 const settingsAutostart = document.querySelector<HTMLInputElement>("#settings-autostart")!;
 const settingsAutostartLabel = document.querySelector<HTMLElement>("#settings-autostart-label")!;
+const settingsUpdateLabel = document.querySelector<HTMLElement>("#settings-update-label")!;
+const settingsUpdateBtn = document.querySelector<HTMLButtonElement>("#settings-update-check")!;
 const langSelect = document.querySelector<HTMLSelectElement>("#settings-lang")!;
 const settingsError = document.querySelector<HTMLElement>("#settings-error")!;
 const settingsSave = document.querySelector<HTMLButtonElement>("#settings-save")!;
@@ -126,6 +128,9 @@ let pendingUpdate: Update | null = null;
 let updatePercent = 0;
 let updateCheckedAt = 0;
 
+/** Manual "Check for updates" state inside the settings panel. */
+let settingsUpdateState: "idle" | "checking" | "uptodate" = "idle";
+
 /** Recompute the pill's label from the current phase (localized). */
 function updateLabelText(): string {
   const L = currentLanguage;
@@ -148,6 +153,42 @@ function syncUpdateBtn(): void {
   updateBtn.setAttribute("aria-label", updateLabelText());
   updateBtn.disabled = updatePhase === "downloading" || updatePhase === "installing";
   updateBtn.tabIndex = visible && !panelOpen() ? 0 : -1;
+  syncSettingsUpdateBtn();
+}
+
+/** Reflect the update state on the settings row: label, status, disabled. */
+function syncSettingsUpdateBtn(): void {
+  const L = currentLanguage;
+  let text = t(L, "checkNow");
+  let disabled = false;
+  let available = false;
+  if (updatePhase === "downloading") {
+    text = t(L, "updateDownloading", { percent: String(updatePercent) });
+    disabled = true;
+  } else if (updatePhase === "installing") {
+    text = t(L, "updateInstalling");
+    disabled = true;
+  } else if (updatePhase === "available" && pendingUpdate) {
+    text = t(L, "updateTo", { version: pendingUpdate.version });
+    available = true;
+  } else if (settingsUpdateState === "checking") {
+    text = t(L, "checkingUpdates");
+    disabled = true;
+  } else if (settingsUpdateState === "uptodate") {
+    text = t(L, "upToDate");
+    disabled = true;
+  }
+  settingsUpdateBtn.textContent = text;
+  settingsUpdateBtn.disabled = disabled;
+  settingsUpdateBtn.classList.toggle("available", available);
+  settingsUpdateBtn.setAttribute("aria-label", text);
+}
+
+/** Poll GitHub for a newer release; propagates failures to the caller. */
+async function performCheck(): Promise<void> {
+  pendingUpdate = await check();
+  updatePhase = pendingUpdate ? "available" : "none";
+  syncUpdateBtn();
 }
 
 /** Poll GitHub for a newer release; non-fatal when offline. */
@@ -157,12 +198,30 @@ async function checkForUpdate(): Promise<void> {
   if (now - updateCheckedAt < UPDATE_MIN_CHECK_INTERVAL_MS) return;
   updateCheckedAt = now;
   try {
-    pendingUpdate = await check();
-    updatePhase = pendingUpdate ? "available" : "none";
+    await performCheck();
   } catch {
     // Offline or no endpoint yet: keep whatever state we had.
+    syncUpdateBtn();
   }
-  syncUpdateBtn();
+}
+
+/** Force a check from the settings panel, bypassing the interval guard. */
+async function checkForUpdatesManual(): Promise<void> {
+  if (settingsUpdateState === "checking") return;
+  settingsUpdateState = "checking";
+  settingsError.textContent = "";
+  settingsError.classList.remove("visible");
+  syncSettingsUpdateBtn();
+  try {
+    await performCheck();
+    updateCheckedAt = Date.now();
+    settingsUpdateState = pendingUpdate ? "idle" : "uptodate";
+  } catch {
+    settingsUpdateState = "idle";
+    settingsError.textContent = t(currentLanguage, "updateCheckError");
+    settingsError.classList.add("visible");
+  }
+  syncSettingsUpdateBtn();
 }
 
 /** Download + install the pending update, then relaunch into it. */
@@ -203,6 +262,17 @@ async function installUpdate(): Promise<void> {
 
 updateBtn.addEventListener("click", () => {
   void installUpdate();
+});
+
+// In settings the check is manual: a button that forces a lookup (or jumps
+// straight to installing once an update is already known to be available).
+settingsUpdateBtn.addEventListener("click", () => {
+  if (settingsUpdateBtn.disabled) return;
+  if (updatePhase === "available" && pendingUpdate) {
+    void installUpdate();
+    return;
+  }
+  void checkForUpdatesManual();
 });
 
 function syncUiScale(): void {
@@ -290,6 +360,7 @@ function localizeAll(): void {
   settingsMagnify.setAttribute("aria-label", t(L, "magnifyLabel"));
   settingsAutostartLabel.textContent = t(L, "autostartLabel");
   settingsAutostart.setAttribute("aria-label", t(L, "autostartLabel"));
+  settingsUpdateLabel.textContent = t(L, "checkForUpdates");
   langSelect.setAttribute("aria-label", t(L, "languageLabel"));
   langSelect.options[0].textContent = t(L, "languageSystem");
   actionsTitle.textContent = t(L, "actionsTitle");
@@ -785,6 +856,7 @@ function openSettings(): void {
   langSelect.value = langDraft ?? savedLanguage;
   settingsMagnify.checked = magnifyEnabled;
   settingsAutostart.checked = autostartAtOpen;
+  syncSettingsUpdateBtn();
   void isEnabled()
     .then((on) => {
       if (settingsOpen) {

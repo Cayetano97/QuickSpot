@@ -761,9 +761,10 @@ button {
   min-width: 0;
 }
 
-/* The language control is a compact pop-up button hugging the row's
-   trailing edge, not a full-width field. */
-#settings-lang {
+/* Compact pop-up controls hugging the row's trailing edge: the language
+   select and the update-check button share the same pill treatment. */
+#settings-lang,
+#settings-update-check {
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -773,26 +774,56 @@ button {
   border-radius: 8px;
   min-height: 30px;
   min-width: 128px;
-  padding: 0 26px 0 11px;
   outline: none;
   cursor: pointer;
   flex: none;
+  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+
+#settings-lang {
+  padding: 0 26px 0 11px;
   appearance: none;
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9ca0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   background-size: 12px 12px;
-  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease;
 }
 
-#settings-lang:focus-visible {
+#settings-update-check {
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+#settings-lang:focus-visible,
+#settings-update-check:focus-visible {
   border-color: var(--accent);
 }
 
+/* With an update waiting, the check button becomes the panel's primary
+   action (matching the launcher pill): accent fill, dark text. */
+#settings-update-check.available {
+  color: var(--disc);
+  font-weight: 600;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+#settings-update-check:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 @media (hover: hover) and (pointer: fine) {
-  #settings-lang:hover {
+  #settings-lang:hover,
+  #settings-update-check:not(:disabled):hover {
     background: var(--ghost-fill-active);
+  }
+
+  #settings-update-check.available:hover {
+    background: #f2f2f2;
+    border-color: #f2f2f2;
   }
 }
 

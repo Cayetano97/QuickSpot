@@ -114,6 +114,10 @@ function installDom(): void {
                 <span class="switch-track"></span>
               </span>
             </label>
+            <div class="settings-list-row">
+              <span class="settings-row-label" id="settings-update-label">Check for updates</span>
+              <button id="settings-update-check" type="button">Check now</button>
+            </div>
           </div>
         </section>
         <div id="settings-footer">
@@ -1253,5 +1257,82 @@ describe("updater", () => {
     select.dispatchEvent(new Event("change", { bubbles: true }));
     await flush();
     expect(document.querySelector("#update .update-label")!.textContent).toBe("Actualizar a v0.2.0");
+  });
+});
+
+describe("settings update check", () => {
+  const FAKE_UPDATE = () => ({
+    version: "0.2.0",
+    date: "2026-08-13T00:00:00Z",
+    body: "",
+    downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+  });
+
+  const openSettings = (): void => {
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+  };
+
+  const updateBtn = (): HTMLButtonElement =>
+    document.querySelector<HTMLButtonElement>("#settings-update-check")!;
+
+  it("forces a check on click and reports when the app is up to date", async () => {
+    await openOverlay();
+    openSettings();
+    const btn = updateBtn();
+    expect(document.querySelector("#settings-update-label")!.textContent).toBe("Check for updates");
+    expect(btn.textContent).toBe("Check now");
+    expect(btn.disabled).toBe(false);
+    btn.click();
+    await flush();
+    // The manual click bypasses the 5-minute interval guard, so the server
+    // is hit once by the auto-check on open and once by the manual one.
+    expect(updater.check).toHaveBeenCalledTimes(2);
+    expect(btn.textContent).toBe("Up to date");
+    expect(btn.disabled).toBe(true);
+    expect(btn.classList.contains("available")).toBe(false);
+  });
+
+  it("offers the pending update and installs it from the settings row", async () => {
+    await openOverlay();
+    const update = FAKE_UPDATE();
+    updater.check.mockResolvedValue(update);
+    openSettings();
+    const btn = updateBtn();
+    btn.click();
+    await flush();
+    expect(btn.textContent).toBe("Update to v0.2.0");
+    expect(btn.disabled).toBe(false);
+    expect(btn.classList.contains("available")).toBe(true);
+    btn.click();
+    await flush();
+    expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(processPlugin.relaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failed check in the footer error and re-enables the button", async () => {
+    await openOverlay();
+    updater.check.mockRejectedValueOnce(new Error("offline"));
+    openSettings();
+    const btn = updateBtn();
+    btn.click();
+    await flush();
+    expect(btn.textContent).toBe("Check now");
+    expect(btn.disabled).toBe(false);
+    const error = document.querySelector("#settings-error")!;
+    expect(error.textContent).toBe("Couldn't check for updates");
+    expect(error.classList.contains("visible")).toBe(true);
+  });
+
+  it("localizes the settings update row", async () => {
+    await openOverlay();
+    openSettings();
+    const select = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    select.value = "es";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    expect(document.querySelector("#settings-update-label")!.textContent).toBe(
+      "Buscar actualizaciones",
+    );
+    expect(updateBtn().textContent).toBe("Buscar ahora");
   });
 });

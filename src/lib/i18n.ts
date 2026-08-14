@@ -67,6 +67,11 @@ interface Dict {
   updateTo: string;
   updateDownloading: string;
   updateInstalling: string;
+  checkForUpdates: string;
+  checkNow: string;
+  checkingUpdates: string;
+  upToDate: string;
+  updateCheckError: string;
 }
 
 const en: Dict = {
@@ -135,6 +140,11 @@ const en: Dict = {
   updateTo: "Update to v{version}",
   updateDownloading: "Downloading {percent}%",
   updateInstalling: "Installing\u2026",
+  checkForUpdates: "Check for updates",
+  checkNow: "Check now",
+  checkingUpdates: "Checking\u2026",
+  upToDate: "Up to date",
+  updateCheckError: "Couldn't check for updates",
 };
 
 const es: Dict = {
@@ -203,6 +213,11 @@ const es: Dict = {
   updateTo: "Actualizar a v{version}",
   updateDownloading: "Descargando {percent}%",
   updateInstalling: "Instalando\u2026",
+  checkForUpdates: "Buscar actualizaciones",
+  checkNow: "Buscar ahora",
+  checkingUpdates: "Buscando\u2026",
+  upToDate: "Estás al día",
+  updateCheckError: "No se pudieron buscar actualizaciones",
 };
 
 export type DictKey = keyof typeof en;
