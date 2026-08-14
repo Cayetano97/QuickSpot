@@ -14,10 +14,11 @@ mod overlay;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Listener, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Managed application state (shared with commands).
@@ -28,6 +29,12 @@ pub struct AppState {
 
 /// Set while the grip is dragging; the clamp watchdog reads it.
 pub struct DragFlag(pub Arc<AtomicBool>);
+
+/// Seconds to wait after launch before pre-warming the hidden webview.
+/// Deliberately placed after Windows' measured boot phase (the period where
+/// it samples CPU/disk usage to rate startup impact), so the app is rated
+/// Low instead of High, while the first hotkey press stays instant.
+const PREWARM_DELAY_SECS: u64 = 15;
 
 /// macOS: use a Login Item via AppleScript instead of a LaunchAgent plist.
 /// Hand-dropped LaunchAgent plists are unreliable on modern macOS (silently
@@ -112,6 +119,35 @@ pub fn run() {
             build_tray(app.handle())?;
             register_hotkey(app.handle());
             overlay::spawn_reconcile(app.handle().clone());
+
+            // The webview's event listeners are registered once its boot
+            // sequence completes; only then is it safe to show the overlay
+            // and emit `overlay-open` (a lost emit would leave the overlay
+            // invisible until the next hotkey press). The frontend emits
+            // this right after `init()` finishes.
+            let ready_app = app.handle().clone();
+            app.listen("quickspot-webview-ready", move |_| {
+                let ov = ready_app.state::<overlay::Overlay>();
+                ov.mark_ready();
+                if ov.take_pending_open() {
+                    if let Some(win) = overlay::window(&ready_app) {
+                        overlay::show_overlay(&ready_app, &win);
+                    }
+                }
+            });
+
+            // Boot-time startup impact: the window is created lazily so the
+            // login autostart stays native-only (WebView2 process spawn is
+            // the single big cost, and Windows rates it "High impact").
+            // Warm the webview up shortly after launch so the first hotkey
+            // press is as instant as before; this only matters for presses
+            // within the first seconds of boot.
+            let warm_app = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(PREWARM_DELAY_SECS));
+                let _ = overlay::ensure_window(&warm_app);
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {

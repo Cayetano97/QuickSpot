@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -597,13 +597,15 @@ for (const tab of [actionsTab, groupsTab]) {
 }
 
 // Clicking outside a picker dismisses it. The actions panel owns all the
-// app/group pickers, so only it needs the listener.
+// app/group/group-select pickers, so only it needs the listener.
 actionsRows.addEventListener("click", (e) => {
   const target = e.target as HTMLElement;
   if (target.closest(".app-picker") || target.closest(".s-app-browse")) return;
   if (target.closest(".g-picker") || target.closest(".g-swatch")) return;
+  if (target.closest(".s-group-picker") || target.closest(".s-group-trigger")) return;
   closeAppPickers();
   closeGroupPickers();
+  closeGroupSelects();
 });
 
 settingsPanel.addEventListener("submit", (e) => {
@@ -850,6 +852,7 @@ function closeActions(): void {
   actionsStatus.textContent = "";
   closeAppPickers();
   closeGroupPickers();
+  closeGroupSelects();
   actionsPanel.classList.remove("open");
   actionsPanel.setAttribute("aria-hidden", "true");
   releasePanel();
@@ -1017,7 +1020,7 @@ function groupActionRows(): void {
   let key = 0;
   const keys: number[] = [];
   for (const row of rows) {
-    const group = row.querySelector<HTMLSelectElement>(".s-group")!.value;
+    const group = row.querySelector<HTMLElement>(".s-group-trigger")?.dataset.value ?? "";
     if (group) {
       let k = blockOf.get(group);
       if (k === undefined) {
@@ -1440,15 +1443,11 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
         .map((r) => ({ id: r.dataset.id ?? "", name: "", color: "" }));
       row.dataset.id = uniqueGroupId(others, nameInput.value.trim());
       delete row.dataset.auto;
-      for (const sel of actionsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
-        const opt = [...sel.options].find((o) => o.value === oldId);
-        if (opt) opt.value = row.dataset.id ?? "";
+      for (const trigger of actionsRows.querySelectorAll<HTMLElement>(".s-group-trigger")) {
+        if (trigger.dataset.value === oldId) trigger.dataset.value = row.dataset.id ?? "";
       }
     }
-    for (const sel of actionsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
-      const opt = [...sel.options].find((o) => o.value === row.dataset.id);
-      if (opt) opt.textContent = nameInput.value.trim();
-    }
+    refreshAllGroupPickers();
   });
 
   swatch.addEventListener("click", () => {
@@ -1488,10 +1487,13 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
     closeGroupPickers();
     const id = row.dataset.id;
     row.remove();
-    for (const sel of actionsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
-      const opt = [...sel.options].find((o) => o.value === id);
-      if (opt) opt.remove();
+    for (const trigger of actionsRows.querySelectorAll<HTMLElement>(".s-group-trigger")) {
+      if (id && trigger.dataset.value === id) {
+        trigger.dataset.value = "";
+        syncGroupTrigger(trigger);
+      }
     }
+    refreshAllGroupPickers();
   });
 
   return row;
@@ -1511,21 +1513,209 @@ function collectGroupsFromRows(): Group[] {
   return out;
 }
 
-/** Rebuild the option list of an action row's group select. */
-function rebuildGroupOptions(sel: HTMLSelectElement): void {
-  const prev = sel.value;
-  sel.textContent = "";
-  const none = document.createElement("option");
-  none.value = "";
-  none.textContent = t(currentLanguage, "noGroup");
-  sel.appendChild(none);
-  for (const row of groupRows()) {
-    const opt = document.createElement("option");
-    opt.value = row.dataset.id ?? "";
-    opt.textContent = row.querySelector<HTMLInputElement>(".g-name")!.value.trim();
-    sel.appendChild(opt);
+// ------------------------------------------------------- group select
+
+/** Close every open group-select popup (except `except`, if given). */
+function closeGroupSelects(except?: HTMLElement): void {
+  for (const popup of actionsRows.querySelectorAll<HTMLElement>(".s-group-picker")) {
+    if (popup === except || popup.hidden) continue;
+    popup.hidden = true;
+    popup.parentElement
+      ?.querySelector<HTMLElement>(".s-group-trigger")
+      ?.setAttribute("aria-expanded", "false");
   }
-  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+}
+
+/** Rebuild a picker's options from the current group rows. */
+function refreshGroupPicker(listbox: HTMLElement): void {
+  groupPickerRefresh.get(listbox)?.();
+}
+
+/** Rebuild every group-select popup (after groups are added/renamed/deleted). */
+function refreshAllGroupPickers(): void {
+  for (const popup of actionsRows.querySelectorAll<HTMLElement>(".s-group-picker")) {
+    refreshGroupPicker(popup);
+  }
+}
+
+/** Label shown on the trigger for a group id ("" = no group). */
+function groupTriggerLabel(value: string): string {
+  if (!value) return t(currentLanguage, "noGroup");
+  const row = groupRows().find((g) => g.dataset.id === value);
+  const name = row?.querySelector<HTMLInputElement>(".g-name")?.value.trim();
+  return name || t(currentLanguage, "noGroup");
+}
+
+/** Reflect the current value on the trigger: text and accessible name. */
+function syncGroupTrigger(trigger: HTMLElement): void {
+  const label = groupTriggerLabel(trigger.dataset.value ?? "");
+  trigger.querySelector<HTMLElement>(".s-group-value")!.textContent = label;
+  trigger.setAttribute(
+    "aria-label",
+    `${t(currentLanguage, "actionGroupLabel")}: ${label}`,
+  );
+}
+
+/** Per-popup refresh callbacks keyed by their listbox element. */
+const groupPickerRefresh = new WeakMap<HTMLElement, () => void>();
+
+let groupPickerSeq = 0;
+
+/** Build the group-select picker: a trigger button plus a listbox that is
+ * anchored in-flow right under the trigger (the host is a column flex
+ * container), expanding the action card downward. Returns the trigger. */
+function buildGroupPicker(host: HTMLElement, initial: string): HTMLElement {
+  const listId = `gsel-${++groupPickerSeq}`;
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "s-group s-group-trigger";
+  trigger.dataset.value = initial;
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("aria-controls", listId);
+  const valueSpan = document.createElement("span");
+  valueSpan.className = "s-group-value";
+  trigger.appendChild(valueSpan);
+  host.appendChild(trigger);
+
+  const listbox = document.createElement("div");
+  listbox.className = "s-group-picker";
+  listbox.id = listId;
+  listbox.hidden = true;
+  listbox.tabIndex = -1;
+  listbox.setAttribute("role", "listbox");
+  listbox.setAttribute("aria-label", t(currentLanguage, "groupSelectAria"));
+
+  let options: HTMLElement[] = [];
+  let activeIdx = 0;
+
+  const renderOptions = (): void => {
+    const value = trigger.dataset.value ?? "";
+    listbox.textContent = "";
+    options = [];
+    activeIdx = 0;
+    const addOption = (id: string, name: string, color: string): void => {
+      const opt = document.createElement("button");
+      opt.type = "button";
+      opt.className = "sg-item";
+      opt.id = `${listId}-opt-${options.length}`;
+      opt.tabIndex = -1;
+      opt.dataset.value = id;
+      opt.setAttribute("role", "option");
+      opt.setAttribute("aria-selected", String(id === value));
+      const dot = document.createElement("span");
+      dot.className = "sg-dot";
+      if (isHexColor(color)) dot.style.background = color;
+      const label = document.createElement("span");
+      label.className = "sg-name";
+      label.textContent = name;
+      opt.append(dot, label);
+      listbox.appendChild(opt);
+      options.push(opt);
+      if (id === value) activeIdx = options.length - 1;
+    };
+    addOption("", t(currentLanguage, "noGroup"), "");
+    for (const gRow of groupRows()) {
+      const id = gRow.dataset.id ?? "";
+      const name = gRow.querySelector<HTMLInputElement>(".g-name")!.value.trim();
+      const color = gRow.querySelector<HTMLInputElement>(".g-hex")!.value.trim();
+      addOption(id, name || t(currentLanguage, "noGroup"), color);
+    }
+  };
+
+  const syncActive = (idx: number, scroll: boolean): void => {
+    activeIdx = idx;
+    for (let i = 0; i < options.length; i++) {
+      options[i].classList.toggle("sg-active", i === idx);
+    }
+    if (idx >= 0 && options[idx]) {
+      listbox.setAttribute("aria-activedescendant", options[idx].id);
+      if (scroll) options[idx].scrollIntoView?.({ block: "nearest" });
+    } else {
+      listbox.removeAttribute("aria-activedescendant");
+    }
+  };
+
+  const close = (focusTrigger: boolean): void => {
+    if (listbox.hidden) return;
+    listbox.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    listbox.removeAttribute("aria-activedescendant");
+    if (focusTrigger) trigger.focus();
+  };
+
+  const open = (): void => {
+    closeGroupSelects(listbox);
+    renderOptions();
+    listbox.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    syncActive(activeIdx, false);
+    listbox.focus();
+  };
+
+  const choose = (opt: HTMLElement): void => {
+    trigger.dataset.value = opt.dataset.value ?? "";
+    syncGroupTrigger(trigger);
+    close(true);
+  };
+
+  trigger.addEventListener("click", () => {
+    if (listbox.hidden) open();
+    else close(true);
+  });
+
+  listbox.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close(true);
+      return;
+    }
+    if (e.key === "Tab") {
+      // Leave the popup and let the panel's focus trap move on naturally.
+      close(false);
+      return;
+    }
+    if (options.length === 0) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      choose(options[activeIdx >= 0 ? activeIdx : 0]);
+      return;
+    }
+    let next = -1;
+    if (e.key === "ArrowDown") next = activeIdx + 1 < options.length ? activeIdx + 1 : 0;
+    else if (e.key === "ArrowUp") next = activeIdx - 1 >= 0 ? activeIdx - 1 : options.length - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = options.length - 1;
+    if (next >= 0) {
+      e.preventDefault();
+      syncActive(next, true);
+    }
+  });
+
+  // Hover highlights; click commits (PointerEvents, so it also covers touch).
+  listbox.addEventListener("pointermove", (e) => {
+    const opt = (e.target as HTMLElement).closest<HTMLElement>(".sg-item");
+    if (opt && options.includes(opt)) syncActive(options.indexOf(opt), false);
+  });
+
+  listbox.addEventListener("click", (e) => {
+    const opt = (e.target as HTMLElement).closest<HTMLElement>(".sg-item");
+    if (opt && options.includes(opt)) choose(opt);
+  });
+
+  const refresh = (): void => {
+    const wasOpen = !listbox.hidden;
+    renderOptions();
+    syncGroupTrigger(trigger);
+    if (wasOpen) syncActive(activeIdx, false);
+  };
+  groupPickerRefresh.set(listbox, refresh);
+
+  refresh();
+  host.appendChild(listbox);
+  return trigger;
 }
 
 /** Build the groups tab content. It is appended after the actions section. */
@@ -1556,9 +1746,7 @@ function rebuildGroupsEditor(): HTMLElement {
     const id = uniqueGroupId(collectGroupsFromRows(), "");
     const row = buildGroupRow(id, "", GROUP_PALETTE[0], true);
     list.appendChild(row);
-    for (const sel of actionsRows.querySelectorAll<HTMLSelectElement>(".s-group")) {
-      rebuildGroupOptions(sel);
-    }
+    refreshAllGroupPickers();
     row.querySelector<HTMLInputElement>(".g-name")?.focus();
   });
   return block;
@@ -1666,17 +1854,16 @@ function buildSettingsRow(a: Action): HTMLElement {
   browse.className = "s-app-browse";
   browse.textContent = t(L, "browseApps");
 
-  const groupSel = document.createElement("select");
-  groupSel.className = "s-group";
-  groupSel.setAttribute("aria-label", t(L, "actionGroupLabel"));
-  rebuildGroupOptions(groupSel);
-  groupSel.value = a.group ?? "";
-  const groupField = document.createElement("label");
+  // The group picker lives on its own full-width line under the value row,
+  // so the anchored listbox (appended inside the host by buildGroupPicker)
+  // drops directly below its trigger and expands the card downward.
+  const groupField = document.createElement("div");
   groupField.className = "action-field s-group-field";
   const groupLabel = document.createElement("span");
   groupLabel.className = "field-label s-group-label";
   groupLabel.textContent = t(L, "actionGroupLabel");
-  groupField.append(groupLabel, groupSel);
+  groupField.appendChild(groupLabel);
+  buildGroupPicker(groupField, a.group ?? "");
 
   // The browser executable is no longer edited in the UI, but a value set
   // in the config file must survive a save round-trip untouched.
@@ -1706,8 +1893,8 @@ function buildSettingsRow(a: Action): HTMLElement {
   down.addEventListener("click", () => move(1, down));
 
   top.append(nameField, kindField, order, del);
-  valueWrap.append(valueField, browse, groupField);
-  row.append(top, valueWrap);
+  valueWrap.append(valueField, browse);
+  row.append(top, valueWrap, groupField);
   attachAppPicker(row, value, name);
   return row;
 }
@@ -1747,11 +1934,13 @@ function localizeSettingsRow(row: HTMLElement): void {
   value.setAttribute("aria-label", t(L, "actionValueLabel"));
   row.querySelector<HTMLElement>(".s-kind-label")!.textContent = t(L, "actionTypeLabel");
   row.querySelector<HTMLElement>(".s-value-label")!.textContent = t(L, "actionValueLabel");
-  const groupSel = row.querySelector<HTMLSelectElement>(".s-group");
-  if (groupSel) {
-    groupSel.setAttribute("aria-label", t(L, "actionGroupLabel"));
-    const none = groupSel.options[0];
-    if (none) none.textContent = t(L, "noGroup");
+  const groupTrigger = row.querySelector<HTMLElement>(".s-group-trigger");
+  if (groupTrigger) {
+    syncGroupTrigger(groupTrigger);
+    row.querySelector<HTMLElement>(".s-group-picker")?.setAttribute(
+      "aria-label",
+      t(L, "groupSelectAria"),
+    );
   }
   row.querySelector<HTMLElement>(".s-group-label")!.textContent = t(L, "actionGroupLabel");
   del.setAttribute(
@@ -1775,7 +1964,7 @@ function collectSettingsActions(): Action[] {
     const kind = row.querySelector<HTMLSelectElement>(".s-kind")!.value as Action["kind"];
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
     const browser = row.dataset.browser ?? "";
-    const group = row.querySelector<HTMLSelectElement>(".s-group")!.value;
+    const group = row.querySelector<HTMLElement>(".s-group-trigger")?.dataset.value ?? "";
     const a: Action = { name, kind, value };
     if (kind === "url" && browser) a.browser = browser;
     if (group && saved.some((g) => g.id === group)) a.group = group;
@@ -1901,6 +2090,11 @@ async function init(): Promise<void> {
   magnifyEnabled = cfg.magnify;
   applyLanguage();
   refilter();
+
+  // Tell Rust the overlay-open listener is registered, so the first show
+  // (which can now happen right after a lazy window creation) is never
+  // missed. See the quickspot-webview-ready listener in lib.rs.
+  await emit("quickspot-webview-ready");
 }
 
 void init();

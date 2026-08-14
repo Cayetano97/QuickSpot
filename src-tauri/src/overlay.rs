@@ -2,10 +2,13 @@
 //! machine, cursor-monitor centering, click-through toggling, the
 //! drag-clamp watchdog, and the OS-minimize reconcile.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
+use tauri::webview::WebviewWindowBuilder;
+use tauri::window::Color;
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow};
 
 pub const WINDOW_LABEL: &str = "main";
 
@@ -24,12 +27,20 @@ pub enum Phase {
 
 pub struct Overlay {
     phase: Mutex<Phase>,
+    /// Set when the webview signals that its event listeners are registered
+    /// (see the frontend's `quickspot-webview-ready` emit).
+    ready: AtomicBool,
+    /// An open was requested while the webview was still loading; the ready
+    /// handler performs the show once it fires.
+    pending_open: AtomicBool,
 }
 
 impl Overlay {
     pub fn new() -> Self {
         Self {
             phase: Mutex::new(Phase::Hidden),
+            ready: AtomicBool::new(false),
+            pending_open: AtomicBool::new(false),
         }
     }
 
@@ -51,10 +62,57 @@ impl Overlay {
             false
         }
     }
+
+    /// Record that the webview finished its boot sequence.
+    pub fn mark_ready(&self) {
+        self.ready.store(true, Ordering::SeqCst);
+    }
+
+    /// Consume a deferred open (returns true if one was waiting).
+    pub fn take_pending_open(&self) -> bool {
+        self.pending_open.swap(false, Ordering::SeqCst)
+    }
 }
 
 pub fn window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(WINDOW_LABEL)
+}
+
+/// Create the overlay window on first use. It is deliberately NOT declared
+/// in `tauri.conf.json`: the webview (a full WebView2/Chromium process tree
+/// on Windows) is the only heavy thing this app does at startup, and it is
+/// what makes Windows rate it as "High impact" on the login autostart.
+/// Creating it lazily keeps the boot-time process native-only. The window
+/// itself is identical to the old config-declared one: invisible, unfocused,
+/// transparent, always-on-top, no decorations or taskbar entry.
+pub fn ensure_window(app: &AppHandle) -> Option<WebviewWindow> {
+    if let Some(win) = window(app) {
+        return Some(win);
+    }
+    match build_window(app) {
+        Ok(win) => Some(win),
+        Err(e) => {
+            eprintln!("[quickspot] failed to create overlay window: {e}");
+            None
+        }
+    }
+}
+
+fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("index.html".into()))
+        .title("QuickSpot")
+        .inner_size(520.0, 580.0)
+        .resizable(false)
+        .maximizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        .shadow(false)
+        .background_color(Color(0, 0, 0, 0))
+        .build()
 }
 
 /// Toggle the overlay: if shown (or animating open), close it; else open.
@@ -73,11 +131,26 @@ pub fn toggle(app: &AppHandle) {
 /// Show the overlay centered on the work area of the monitor under the
 /// cursor, then focus it for typing. Runs on EVERY open: the overlay never
 /// remembers a dragged spot.
+///
+/// If the webview does not exist yet (very first open after launch) or is
+/// still loading, the show is deferred until the frontend signals ready
+/// (see `quickspot-webview-ready` in lib.rs); that guarantees the
+/// `overlay-open` emit is never lost to a not-yet-registered listener.
 pub fn open(app: &AppHandle) {
-    let Some(win) = window(app) else {
+    let Some(win) = ensure_window(app) else {
         return;
     };
-    if let Err(e) = reposition_to_cursor_monitor(app, &win) {
+    let ov = app.state::<Overlay>();
+    if !ov.ready.load(Ordering::SeqCst) {
+        ov.pending_open.store(true, Ordering::SeqCst);
+        return;
+    }
+    show_overlay(app, &win);
+}
+
+/// The physical show sequence for an already-ready window.
+pub fn show_overlay(app: &AppHandle, win: &WebviewWindow) {
+    if let Err(e) = reposition_to_cursor_monitor(app, win) {
         eprintln!("[quickspot] reposition: {e}");
     }
     // An OS-level minimize (Win+Down) has to be lifted before show.

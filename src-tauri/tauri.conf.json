@@ -12,29 +12,6 @@
   "app": {
     "withGlobalTauri": false,
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "QuickSpot",
-        "width": 520,
-        "height": 580,
-        "resizable": false,
-        "maximizable": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "focus": false,
-        "shadow": false,
-        "backgroundColor": [
-          0,
-          0,
-          0,
-          0
-        ]
-      }
-    ],
     "security": {
       "csp": null
     }

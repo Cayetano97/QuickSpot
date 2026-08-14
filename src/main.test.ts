@@ -13,7 +13,7 @@ import type { Action, Group } from "./lib/model";
 const { invoke, listen } = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
-vi.mock("@tauri-apps/api/event", () => ({ listen }));
+vi.mock("@tauri-apps/api/event", () => ({ listen, emit: vi.fn().mockResolvedValue(undefined) }));
 
 const autostart = vi.hoisted(() => ({
   enable: vi.fn().mockResolvedValue(undefined),
@@ -686,23 +686,22 @@ describe("actions panel", () => {
     expect(rowOrder(rows[1])).toEqual([
       { cls: "action-field s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: true },
-      { cls: "action-field s-group-field", hidden: false },
     ]);
     expect(rowOrder(rows[2])).toEqual([
       { cls: "action-field s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: true },
-      { cls: "action-field s-group-field", hidden: false },
     ]);
     expect(rowOrder(rows[0])).toEqual([
       { cls: "action-field s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: false },
-      { cls: "action-field s-group-field", hidden: false },
     ]);
     for (const row of rows) {
+      // The group field is its own line under the value row, with the
+      // anchored listbox as its last child (below the trigger).
       expect(
-        row.querySelector<HTMLElement>(".s-value-row")!.lastElementChild!.classList.contains(
-          "s-group-field",
-        ),
+        row
+          .querySelector<HTMLElement>(".s-group-field")!
+          .lastElementChild!.classList.contains("s-group-picker"),
       ).toBe(true);
     }
   });
@@ -721,8 +720,8 @@ describe("actions panel", () => {
     expect(browse.hidden).toBe(true);
     expect(
       document
-        .querySelector<HTMLElement>(".s-value-row")!
-        .lastElementChild!.classList.contains("s-group-field"),
+        .querySelector<HTMLElement>(".s-group-field")!
+        .lastElementChild!.classList.contains("s-group-picker"),
     ).toBe(true);
   });
 
@@ -852,9 +851,12 @@ describe("groups", () => {
     expect(document.querySelector(".g-color-label")!.textContent).toBe("Color");
     expect(document.querySelector(".s-name-label")!.textContent).toBe("Name");
     expect(document.querySelector(".s-value-label")!.textContent).toBe("Value");
-    const sel = document.querySelector<HTMLSelectElement>(".s-group")!;
-    expect([...sel.options].map((o) => o.value)).toEqual(["", "work", "dev"]);
-    expect(sel.value).toBe("work");
+    const trigger = document.querySelector<HTMLElement>(".s-group-trigger")!;
+    expect(trigger.dataset.value).toBe("work");
+    const listbox = document.querySelector<HTMLElement>(".s-group-picker")!;
+    expect([...listbox.querySelectorAll<HTMLElement>(".sg-item")].map((o) => o.dataset.value)).toEqual(
+      ["", "work", "dev"],
+    );
   });
 
   it("Save sends groups and per-action group ids", async () => {
@@ -897,8 +899,11 @@ describe("groups", () => {
     await openOverlay();
     openActions();
     document.querySelectorAll<HTMLButtonElement>(".g-del")[0].click();
-    const sel = document.querySelector<HTMLSelectElement>(".s-group")!;
-    expect([...sel.options].map((o) => o.value)).toEqual(["", "dev"]);
+    const listbox = document.querySelector<HTMLElement>(".s-group-picker")!;
+    expect([...listbox.querySelectorAll<HTMLElement>(".sg-item")].map((o) => o.dataset.value)).toEqual(
+      ["", "dev"],
+    );
+    expect(document.querySelector<HTMLElement>(".s-group-trigger")!.dataset.value).toBe("");
     document.querySelector<HTMLButtonElement>("#actions-save")!.click();
     await flush();
     expect(invoke).toHaveBeenCalledWith(
@@ -945,6 +950,69 @@ describe("groups", () => {
     expect(document.querySelector(".g-error")!.textContent).toBe(
       "Enter a 6-digit hex color",
     );
+  });
+
+  it("picks a group from the custom listbox with the keyboard and closes with Escape", async () => {
+    await mount({ actions: GROUPED, groups: GROUPS });
+    await openOverlay();
+    openActions();
+    const trigger = document.querySelector<HTMLButtonElement>(".s-group-trigger")!;
+    const listbox = document.querySelector<HTMLElement>(".s-group-picker")!;
+    expect(listbox.hidden).toBe(true);
+    trigger.click();
+    expect(listbox.hidden).toBe(false);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const items = [...listbox.querySelectorAll<HTMLElement>(".sg-item")];
+    expect(items.map((o) => o.dataset.value)).toEqual(["", "work", "dev"]);
+    expect(items[1].getAttribute("aria-selected")).toBe("true");
+    expect(listbox.getAttribute("aria-activedescendant")).toBe(items[1].id);
+    key(listbox, "ArrowDown");
+    expect(listbox.getAttribute("aria-activedescendant")).toBe(items[2].id);
+    key(listbox, "Home");
+    expect(listbox.getAttribute("aria-activedescendant")).toBe(items[0].id);
+    key(listbox, "Enter");
+    expect(trigger.dataset.value).toBe("");
+    expect(listbox.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+    trigger.click();
+    key(listbox, "ArrowDown");
+    key(listbox, "ArrowDown");
+    key(listbox, "Enter");
+    expect(trigger.dataset.value).toBe("dev");
+    expect(trigger.textContent).toBe("Dev");
+    trigger.click();
+    key(listbox, "Escape");
+    expect(listbox.hidden).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("picks a group from the listbox with the mouse", async () => {
+    await mount({ actions: GROUPED, groups: GROUPS });
+    await openOverlay();
+    openActions();
+    const trigger = document.querySelector<HTMLButtonElement>(".s-group-trigger")!;
+    const listbox = document.querySelector<HTMLElement>(".s-group-picker")!;
+    trigger.click();
+    const items = [...listbox.querySelectorAll<HTMLElement>(".sg-item")];
+    items[2].click();
+    expect(trigger.dataset.value).toBe("dev");
+    expect(listbox.hidden).toBe(true);
+  });
+
+  it("renaming a group updates the picker options and selected trigger label", async () => {
+    await mount({ actions: GROUPED, groups: GROUPS });
+    await openOverlay();
+    openActions();
+    const name = document.querySelector<HTMLInputElement>(".g-name")!;
+    name.value = "Engineering";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    const trigger = document.querySelector<HTMLElement>(".s-group-trigger")!;
+    expect(trigger.textContent).toBe("Engineering");
+    const listbox = document.querySelector<HTMLElement>(".s-group-picker")!;
+    expect(
+      [...listbox.querySelectorAll<HTMLElement>(".sg-item")].map((o) => o.textContent),
+    ).toEqual(["No group", "Engineering", "Dev"]);
   });
 
   it("picks a palette color with the keyboard and closes with Escape", async () => {
@@ -1005,8 +1073,8 @@ describe("group actions button", () => {
       (input) => input.value,
     );
   const rowGroups = (): string[] =>
-    [...document.querySelectorAll<HTMLSelectElement>(".settings-row .s-group")].map(
-      (sel) => sel.value,
+    [...document.querySelectorAll<HTMLElement>(".settings-row .s-group-trigger")].map(
+      (el) => el.dataset.value ?? "",
     );
 
   it("groups together the actions of each group with one click", async () => {
@@ -1029,7 +1097,7 @@ describe("group actions button", () => {
     const [slack] = [...document.querySelectorAll<HTMLElement>(".settings-row")];
     document.querySelector<HTMLButtonElement>("#actions-group")!.click();
     expect(slack.querySelector<HTMLInputElement>(".s-name")!.value).toBe("Slack");
-    expect(slack.querySelector<HTMLSelectElement>(".s-group")!.value).toBe("work");
+    expect(slack.querySelector<HTMLElement>(".s-group-trigger")!.dataset.value).toBe("work");
     expect(
       [...document.querySelectorAll<HTMLElement>(".settings-row")][0] === slack,
     ).toBe(true);
