@@ -1689,9 +1689,9 @@ const groupPickerRefresh = new WeakMap<HTMLElement, () => void>();
 
 let groupPickerSeq = 0;
 
-/** Build the group-select picker: a trigger button plus a listbox that is
- * anchored in-flow right under the trigger (the host is a column flex
- * container), expanding the action card downward. Returns the trigger. */
+/** Build the group-select picker: a trigger button plus a listbox popover
+ * anchored to the trigger, floating over the content below. Returns the
+ * trigger. */
 function buildGroupPicker(host: HTMLElement, initial: string): HTMLElement {
   const listId = `gsel-${++groupPickerSeq}`;
 
@@ -1781,6 +1781,12 @@ function buildGroupPicker(host: HTMLElement, initial: string): HTMLElement {
     listbox.hidden = false;
     trigger.setAttribute("aria-expanded", "true");
     syncActive(activeIdx, false);
+    // Flip the popover upward when it would overflow the panel below.
+    listbox.classList.toggle(
+      "open-up",
+      trigger.getBoundingClientRect().bottom + listbox.offsetHeight + 12 >
+        actionsRows.getBoundingClientRect().bottom,
+    );
     listbox.focus();
   };
 
@@ -2006,8 +2012,8 @@ function buildSettingsRow(a: Action): HTMLElement {
   browse.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>';
 
-  // The group picker rides the value line, so the anchored listbox drops
-  // directly below its trigger and expands the card downward.
+  // The group picker rides the value line; its popover floats below the
+  // trigger without pushing the rest of the card.
   const groupField = document.createElement("div");
   groupField.className = "s-group-field";
   buildGroupPicker(groupField, a.group ?? "");

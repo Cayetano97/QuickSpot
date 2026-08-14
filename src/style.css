@@ -772,17 +772,19 @@ button {
   min-width: 0;
 }
 
-/* Rows stacking label, control and a hint on separate lines (language row). */
+/* Language row: label and select share one line (control on the trailing
+   edge, like the switch rows), with the translators credit wrapping to a
+   full-width caption line below. */
 .settings-list-row-col {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  gap: 6px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
   padding: 10px 14px;
 }
 
-.settings-list-row-col #settings-lang {
-  align-self: flex-end;
+.settings-list-row-col .settings-translators {
+  flex-basis: 100%;
 }
 
 .settings-translators {
@@ -852,7 +854,9 @@ button {
 @media (hover: hover) and (pointer: fine) {
   #settings-lang:hover,
   #settings-update-check:not(:disabled):hover {
-    background: var(--ghost-fill-active);
+    /* background-color (not the background shorthand): the shorthand would
+       reset the language select's chevron background-image on hover. */
+    background-color: var(--ghost-fill-active);
   }
 
   #settings-update-check.available:hover {
@@ -1308,13 +1312,31 @@ button {
 .group-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
+  /* Top-aligned fields so the "Name" and "Color" captions share a baseline;
+     the delete button re-centers itself via align-self. */
+  align-items: start;
   gap: 10px;
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
   background: var(--chip-fill);
   padding: 12px;
   position: relative;
+}
+
+/* Label-above-control stacking with a breathing gap (macOS field pattern). */
+.group-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Field captions inside group rows ("Name", "Color"): smaller and dimmer
+   than the value they caption, kept legible on the dark card. */
+.group-row .field-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  letter-spacing: 0.01em;
 }
 
 .group-row .g-name,
@@ -1379,6 +1401,7 @@ button {
 }
 
 .group-row .g-del {
+  align-self: center;
   flex: 0 0 var(--editor-icon-size);
   width: var(--editor-icon-size);
   height: var(--editor-icon-size);
@@ -1487,18 +1510,32 @@ button {
   min-height: 15px;
 }
 
-/* In-flow list anchored under the trigger: it never overlays other
-   content, it pushes the rest of the card down. */
-.settings-row .s-group-picker,
+/* The app picker stays in flow: it expands the card below the value line. */
 .settings-row .app-picker {
   grid-column: 1 / -1;
   grid-row: 3;
 }
 
+/* The group picker is a floating popover anchored to its trigger: it
+   overlays the content below instead of pushing the card open (menus
+   emerge from the control that opened them). `.open-up` flips it above
+   the trigger when it would overflow the panel. */
+.settings-row .s-group-field {
+  position: relative;
+}
+
 .settings-row .s-group-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 132px;
+  width: max-content;
+  max-width: 220px;
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
-  background: #141416;
+  background: #18181b;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -1506,6 +1543,11 @@ button {
   max-height: 240px;
   overflow-y: auto;
   outline: none;
+}
+
+.settings-row .s-group-picker.open-up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 .settings-row .s-group-picker[hidden] {
