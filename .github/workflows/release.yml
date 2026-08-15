@@ -98,9 +98,12 @@ jobs:
           releaseBody: |
             ### Highlights
 
-            - **Self-updates** — a subtle blue button now appears in the launcher when a new version is available. Click it to download, install and relaunch in one go; every update is signed and verified against the bundled key.
-            - **Colored groups** — organize actions into groups and give each one a color that accents its chips (border, icon, fill).
-            - **Redesigned settings & actions panel** — tabbed editor with reorder controls, a dedicated close button, and improved keyboard navigation and screen-reader support.
+            - **Localization** — QuickSpot now speaks your language. English and Spanish are bundled; the app follows your system language by default and lets you override it in Settings. Adding a new language is a one-file PR.
+            - **Check for updates** — a dedicated button in Settings checks for a new version at any time, on top of the automatic check on every open.
+            - **Show action icons** — new Settings toggle to hide the kind icons on the chips and give the labels more room.
+            - **Reliable launch at login on macOS** — autostart now uses Login Items (listed in System Settings → Login Items), replacing the old LaunchAgent plist that macOS sometimes ignored.
+            - **Faster first open** — the overlay window is pre-warmed right after launch, so the very first hotkey press opens instantly.
+            - **Improved group picker** — selecting a group for an action now uses a floating popover, with the color palette and custom-hex editor refreshed.
           # Published (not draft): the in-app updater polls the
           # `releases/latest` endpoint, which only sees published releases.
           releaseDraft: false

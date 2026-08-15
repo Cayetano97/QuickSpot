@@ -9,7 +9,7 @@
   <br />
   Press a global hotkey and a round overlay fades in with your actions orbiting a central hub.
   <br />
-  <strong>⚠️ Status: work in progress — under construction.</strong>
+  <strong>Status: beta — under active development.</strong>
 </p>
 
 <p align="center">
@@ -105,7 +105,7 @@ unknown `kind`) are skipped.
 | `kind` | `"url"`, `"command"`, or `"app"` |
 | `value` | URL, shell command, or app path / bundle id |
 | `browser` | Optional: custom browser executable for URLs. Set in the config file (not edited in the actions panel; a value there is preserved on save) |
-| `hint` | Optional: reserved for future use; ignored in v1 |
+| `hint` | Optional: reserved for future use |
 | `group` | Optional: id of the group this action belongs to |
 | `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The actions panel manages groups and colors (curated palette plus a validated custom hex) |
 | `language` | Optional, top-level: `"system"` (follow the OS language) or any BCP-47-ish code with a locale file — currently `"en"`, `"es"`. Unknown codes fall back to English |
@@ -170,7 +170,7 @@ To add a language:
 
 QuickSpot self-updates from GitHub Releases. When a new release is
 published, a subtle blue pill appears at the bottom of the overlay
-(`Update to v0.2.0`); clicking it downloads the new version, installs it
+(`Update to v0.3.0`); clicking it downloads the new version, installs it
 and relaunches into it.
 
 ## License
