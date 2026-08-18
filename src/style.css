@@ -195,11 +195,16 @@ button {
 }
 
 /* ------------------------------------------------------------- query line */
+/* The pill centers itself and grows with the text up to a cap; past it,
+   `.overflowing` left-aligns the content and the JS scrolls to the end so
+   the tail of the query stays visible instead of clipping both ends. */
 #query-wrap {
   position: absolute;
-  left: 192px;
+  left: 50%;
   top: 264px;
-  width: 136px;
+  transform: translateX(-50%);
+  min-width: 136px;
+  max-width: 260px;
   height: 32px;
   display: flex;
   align-items: center;
@@ -215,6 +220,10 @@ button {
   letter-spacing: 0.01em;
 }
 
+#query-wrap.overflowing {
+  justify-content: flex-start;
+}
+
 #query-wrap.active {
   background: #242426;
   border-color: #59595b;
@@ -227,8 +236,6 @@ button {
 
 #query-mirror {
   white-space: pre;
-  max-width: 128px;
-  overflow: hidden;
 }
 
 #query-mirror.dim {
@@ -260,10 +267,9 @@ button {
 
 #query {
   position: absolute;
-  left: 192px;
-  top: 264px;
-  width: 136px;
-  height: 32px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   background: transparent;
   border: none;
   outline: none;
@@ -507,11 +513,13 @@ button {
   }
 }
 
-/* Keep an empty search useful without competing with the query field. */
+/* Feedback band below the launcher controls: the empty state ("no matches",
+   "no actions yet") and the run error share the disc's lower half, clear of
+   the query pill, the minimize button and the update pill. */
 #empty-state {
   position: absolute;
   left: 110px;
-  top: 258px;
+  top: 366px;
   width: 300px;
   min-height: 24px;
   display: flex;
@@ -540,7 +548,7 @@ button {
 #run-error {
   position: absolute;
   left: 110px;
-  top: 292px;
+  top: 400px;
   width: 300px;
   min-height: 24px;
   display: flex;

@@ -2,7 +2,9 @@ import {
   CENTER_X,
   CENTER_Y,
   CHIP_GAP,
+  CHIP_H,
   CHIP_W,
+  DISC_RADIUS,
   DOCK_MAX_SCALE,
   DOCK_RADIUS,
   ORBIT_RADIUS,
@@ -106,4 +108,27 @@ export function dockScale(
   const t = s * s * (3 - 2 * s); // smoothstep: s²(3 − 2s)
   const hover = 1 + (DOCK_MAX_SCALE - 1) * t;
   return Math.max(base, hover);
+}
+
+/**
+ * Largest scale that keeps the whole chip rectangle inside the disc circle
+ * (center (CENTER_X, CENTER_Y), radius DISC_RADIUS). The chip grows from its
+ * center, so the far corner — the one closest to the disc's rim — is what
+ * limits the scale; solving `(a·s + dx)² + (b·s + dy)² = r²` for s where
+ * `a`/`b` are half the chip's width/height and `dx`/`dy` the chip's offset
+ * from the disc center. Returns `scale` unchanged when it already fits
+ * (the common case: only the 3/9 o'clock chips of a full ring clamp).
+ */
+export function chipMaxScale(cx: number, cy: number, scale: number): number {
+  const a = CHIP_W / 2;
+  const b = CHIP_H / 2;
+  const dx = Math.abs(cx - CENTER_X);
+  const dy = Math.abs(cy - CENTER_Y);
+  const A = a * a + b * b;
+  const B = 2 * (a * dx + b * dy);
+  const C = dx * dx + dy * dy - DISC_RADIUS * DISC_RADIUS;
+  const disc = B * B - 4 * A * C;
+  if (disc <= 0) return Math.min(scale, 1);
+  const max = (-B + Math.sqrt(disc)) / (2 * A);
+  return Math.min(scale, max);
 }

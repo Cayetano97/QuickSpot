@@ -286,6 +286,41 @@ describe("filtering", () => {
     expect(document.querySelector("#empty-state")!.textContent).toBe("No matching actions");
   });
 
+  it("makes the empty state visible after typing a no-match query once settled", async () => {
+    await openOverlay();
+    typeQuery("zzz");
+    expect(document.querySelector("#empty-state")!.classList.contains("visible")).toBe(true);
+  });
+
+  it("hides the empty state once a query matches again", async () => {
+    await openOverlay();
+    typeQuery("zzz");
+    typeQuery("e");
+    expect(document.querySelector("#empty-state")!.classList.contains("visible")).toBe(false);
+  });
+
+  it("greets a fresh config with the no-actions message", async () => {
+    await mount({ actions: [] });
+    await openOverlay();
+    const empty = document.querySelector("#empty-state")!;
+    expect(empty.textContent).toBe('No actions yet. Use \u201cAdd action\u201d to create the first one.');
+    expect(empty.classList.contains("visible")).toBe(true);
+  });
+
+  it("left-aligns and scrolls the query pill to the end when it overflows", async () => {
+    const wrap = document.querySelector<HTMLElement>("#query-wrap")!;
+    Object.defineProperty(wrap, "scrollWidth", {
+      configurable: true,
+      get: () => (document.querySelector("#query-mirror")!.textContent?.length ?? 0) * 7,
+    });
+    Object.defineProperty(wrap, "clientWidth", { configurable: true, get: () => 136 });
+    typeQuery("x".repeat(60));
+    expect(wrap.classList.contains("overflowing")).toBe(true);
+    expect(wrap.scrollLeft).toBe(60 * 7);
+    typeQuery("hi");
+    expect(wrap.classList.contains("overflowing")).toBe(false);
+  });
+
   it("clearing the query restores every action", () => {
     typeQuery("g");
     typeQuery("");

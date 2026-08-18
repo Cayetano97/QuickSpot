@@ -22,6 +22,7 @@ import {
 } from "./lib/constants";
 import {
   chipCenter,
+  chipMaxScale,
   dockScale,
   easeOutCubic,
   easeOutQuart,
@@ -329,6 +330,12 @@ function showQuery(): void {
   mirror.classList.toggle("dim", queryText.length === 0);
   queryWrap.classList.toggle("active", queryText.length > 0);
   input.value = queryText;
+  // The pill grows with the text up to its CSS cap; past it, left-align and
+  // scroll to the end so the tail of the query stays visible (the head is
+  // what clips), keeping the caret reachable instead of typing blind.
+  const overflowing = queryWrap.scrollWidth > queryWrap.clientWidth + 1;
+  queryWrap.classList.toggle("overflowing", overflowing);
+  if (overflowing) queryWrap.scrollLeft = queryWrap.scrollWidth;
 }
 
 /** Briefly display an execution error near the query line, then fade it. */
@@ -338,6 +345,23 @@ function showRunError(msg: string): void {
   el.classList.add("visible");
   window.clearTimeout(runErrorTimer);
   runErrorTimer = window.setTimeout(() => el.classList.remove("visible"), RUN_ERROR_MS);
+}
+
+/**
+ * The empty-state message ("no matches" while typing, "no actions yet" on a
+ * fresh config) and its visibility. Called on every filter change AND on the
+ * animation frames, so the message shows, hides and re-localizes regardless
+ * of whether the animation loop is still running.
+ */
+function syncEmptyState(): void {
+  const noResults = queryText.length > 0 && filtered.length === 0;
+  const noActionsYet = queryText.length === 0 && actions.length === 0;
+  emptyState.textContent = noResults
+    ? t(currentLanguage, "noMatches")
+    : noActionsYet
+      ? t(currentLanguage, "noActions")
+      : "";
+  emptyState.classList.toggle("visible", overlay.phase === "visible" && (noResults || noActionsYet));
 }
 
 /** Recomputed the effective language and re-renders every UI string. */
@@ -376,7 +400,7 @@ function localizeAll(): void {
   const L = currentLanguage;
   document.documentElement.lang = L;
   showQuery();
-  if (queryText.length > 0 && filtered.length === 0) emptyState.textContent = t(L, "noMatches");
+  syncEmptyState();
   input.setAttribute("aria-label", t(L, "searchAria"));
   chipsHost.setAttribute("aria-label", t(L, "actionsAria"));
   hub.setAttribute("aria-label", t(L, "settingsAria"));
@@ -441,8 +465,7 @@ function actionGroup(action: Action): Group | undefined {
 }
 
 function syncChips(): void {
-  emptyState.textContent =
-    queryText.length > 0 && filtered.length === 0 ? t(currentLanguage, "noMatches") : "";
+  syncEmptyState();
   for (let i = 0; i < MAX_VISIBLE; i++) {
     const el = chips[i];
     const idx = filtered[i];
@@ -486,7 +509,9 @@ function applyChipTransforms(): void {
     const hoverScale = magnifyEnabled
       ? dockScale(cx, cy, mouseX, mouseY, i === selected)
       : 1;
-    const scale = Math.min(hoverScale, MAX_FINAL_SCALE);
+    // The dock scale is capped so the chip never pokes out of the disc
+    // circle (the 3/9 o'clock chips of a full ring are the ones that clamp).
+    const scale = Math.min(hoverScale, MAX_FINAL_SCALE, chipMaxScale(cx, cy, MAX_FINAL_SCALE));
     el.style.transform = `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`;
   }
 }
@@ -534,7 +559,7 @@ function render(): void {
     el.style.opacity = String(opacity);
   }
 
-  emptyState.classList.toggle("visible", dp >= 0.85 && count === 0 && queryText.length > 0);
+  syncEmptyState();
 
   const enabled = dp >= 0.05;
   const pe = enabled ? "auto" : "none";
