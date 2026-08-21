@@ -270,6 +270,10 @@ button {
   inset: 0;
   width: 100%;
   height: 100%;
+  /* The wrap swallows hits (`pointer-events: none`); the field must still
+     take clicks and focus within the pill's box only, so the hub/add/minimize
+     buttons around it stay clickable. */
+  pointer-events: auto;
   background: transparent;
   border: none;
   outline: none;

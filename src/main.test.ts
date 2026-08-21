@@ -75,10 +75,9 @@ function installDom(): void {
       <div id="chips"></div>
       <button id="hub"></button>
       <button id="add"></button>
-      <div id="query-wrap"><span id="query-mirror"></span><span id="caret"></span></div>
+      <div id="query-wrap"><span id="query-mirror"></span><span id="caret"></span><input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" /></div>
       <div id="empty-state" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="run-error" role="alert" aria-live="assertive" aria-hidden="true"></div>
-      <input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" />
       <button id="minimize"></button>
       <button id="update"><span class="update-label"></span></button>
       <div id="grip"></div>

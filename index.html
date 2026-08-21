@@ -31,13 +31,13 @@
           <path d="M12 5v14M5 12h14" />
         </svg>
       </button>
-      <div id="query-wrap" aria-hidden="true">
-        <span id="query-mirror" class="dim"></span>
-        <span id="caret"></span>
+      <div id="query-wrap">
+        <span id="query-mirror" class="dim" aria-hidden="true"></span>
+        <span id="caret" aria-hidden="true"></span>
+        <input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" />
       </div>
       <div id="empty-state" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="run-error" role="alert" aria-live="assertive" aria-hidden="true"></div>
-      <input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" />
       <button id="minimize" aria-label="Minimize to tray">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="6 9 12 15 18 9" />
