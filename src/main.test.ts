@@ -15,6 +15,10 @@ const { invoke, listen } = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen, emit: vi.fn().mockResolvedValue(undefined) }));
 
+const appApi = vi.hoisted(() => ({ getVersion: vi.fn() }));
+
+vi.mock("@tauri-apps/api/app", () => appApi);
+
 const autostart = vi.hoisted(() => ({
   enable: vi.fn().mockResolvedValue(undefined),
   disable: vi.fn().mockResolvedValue(undefined),
@@ -123,6 +127,7 @@ function installDom(): void {
             </div>
           </div>
         </section>
+        <p class="settings-version" id="settings-version"></p>
         <div id="settings-footer">
           <span id="settings-error"></span>
           <button id="settings-save" type="submit">Save</button>
@@ -154,6 +159,8 @@ async function mount(config?: {
   language?: string | null;
   magnify?: boolean;
   showIcons?: boolean;
+  /** App version reported by the runtime; null simulates a failed lookup. */
+  version?: string | null;
 }): Promise<void> {
   vi.resetModules();
   for (const key of Object.keys(eventHandlers)) delete eventHandlers[key];
@@ -179,6 +186,12 @@ async function mount(config?: {
   updater.check.mockResolvedValue(null);
   processPlugin.relaunch.mockReset();
   processPlugin.relaunch.mockResolvedValue(undefined);
+  appApi.getVersion.mockReset();
+  if (config?.version === null) {
+    appApi.getVersion.mockRejectedValue(new Error("no runtime"));
+  } else {
+    appApi.getVersion.mockResolvedValue(config?.version ?? "1.2.3");
+  }
   listen.mockReset();
   listen.mockImplementation((name: string, handler: (event: { payload?: unknown }) => void) => {
     eventHandlers[name] = handler;
@@ -542,6 +555,26 @@ describe("settings panel", () => {
     select.value = "es";
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(credit.textContent).toBe("");
+  });
+
+  it("shows the runtime app version at the bottom of the settings panel, localized", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const version = document.querySelector<HTMLElement>("#settings-version")!;
+    expect(appApi.getVersion).toHaveBeenCalledTimes(1);
+    expect(version.textContent).toBe("Version 1.2.3");
+    const select = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    select.value = "es";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(version.textContent).toBe("Versión 1.2.3");
+  });
+
+  it("leaves the version caption empty when the runtime lookup fails", async () => {
+    await mount({ version: null });
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const version = document.querySelector<HTMLElement>("#settings-version")!;
+    expect(version.textContent).toBe("");
   });
 
   it("traps focus while open: outside controls leave the tab order and Tab wraps inside the panel", async () => {

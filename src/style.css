@@ -5,6 +5,7 @@
   --disc-rim: #000000;
   --ink-dim: #b3b3b8;
   --ink-muted: #949499;
+  --ink-faint: #7f7f84;
   --ghost-fill: #2c2c2f;
   --ghost-fill-active: #3b3b3f;
   --ghost-border: #6f6f73;
@@ -807,6 +808,17 @@ button {
 
 .settings-translators a {
   color: var(--ink-muted);
+}
+
+/* App version caption closing the settings content, above the action bar.
+   The faintest ink step: metadata, not a control. */
+.settings-version {
+  margin: 0;
+  padding: 14px 16px 4px;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--ink-faint);
+  text-align: center;
 }
 
 /* Compact pop-up controls hugging the row's trailing edge: the language

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { emit, listen } from "@tauri-apps/api/event";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -70,6 +71,8 @@ let currentLanguage: Language = resolveLanguage(savedLanguage);
 let magnifyEnabled = true;
 let iconsEnabled = true;
 let autostartAtOpen = false;
+/** Runtime app version (tauri.conf.json), resolved asynchronously. */
+let appVersion = "";
 
 const root = document.querySelector<HTMLElement>("#overlay")!;
 const disc = document.querySelector<HTMLElement>("#disc")!;
@@ -100,6 +103,7 @@ const settingsAutostart = document.querySelector<HTMLInputElement>("#settings-au
 const settingsAutostartLabel = document.querySelector<HTMLElement>("#settings-autostart-label")!;
 const settingsUpdateLabel = document.querySelector<HTMLElement>("#settings-update-label")!;
 const settingsUpdateBtn = document.querySelector<HTMLButtonElement>("#settings-update-check")!;
+const settingsVersion = document.querySelector<HTMLElement>("#settings-version")!;
 const langSelect = document.querySelector<HTMLSelectElement>("#settings-lang")!;
 const settingsError = document.querySelector<HTMLElement>("#settings-error")!;
 const settingsSave = document.querySelector<HTMLButtonElement>("#settings-save")!;
@@ -396,6 +400,13 @@ function localizeTranslators(): void {
   settingsTranslators.textContent = label;
 }
 
+/** Version caption at the bottom of the settings content. Stays empty until
+ * the runtime reports its version; a failed lookup never blocks startup. */
+function syncVersionLine(): void {
+  if (!appVersion) return;
+  settingsVersion.textContent = t(currentLanguage, "versionLabel", { version: appVersion });
+}
+
 function localizeAll(): void {
   const L = currentLanguage;
   document.documentElement.lang = L;
@@ -419,6 +430,7 @@ function localizeAll(): void {
   settingsAutostartLabel.textContent = t(L, "autostartLabel");
   settingsAutostart.setAttribute("aria-label", t(L, "autostartLabel"));
   settingsUpdateLabel.textContent = t(L, "checkForUpdates");
+  syncVersionLine();
   langSelect.setAttribute("aria-label", t(L, "languageLabel"));
   langSelect.options[0].textContent = t(L, "languageSystem");
   localizeTranslators();
@@ -2298,6 +2310,13 @@ async function init(): Promise<void> {
   syncIcons();
   applyLanguage();
   refilter();
+
+  getVersion()
+    .then((version) => {
+      appVersion = version;
+      syncVersionLine();
+    })
+    .catch(() => {});
 
   // Tell Rust the overlay-open listener is registered, so the first show
   // (which can now happen right after a lazy window creation) is never

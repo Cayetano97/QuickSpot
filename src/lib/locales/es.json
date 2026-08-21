@@ -74,5 +74,6 @@
   "checkingUpdates": "Buscando\u2026",
   "upToDate": "Estás al día",
   "updateCheckError": "No se pudieron buscar actualizaciones",
+  "versionLabel": "Versión {version}",
   "translatedBy": "Traducido por {translators}"
 }

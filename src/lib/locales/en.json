@@ -74,5 +74,6 @@
   "checkingUpdates": "Checking\u2026",
   "upToDate": "Up to date",
   "updateCheckError": "Couldn't check for updates",
+  "versionLabel": "Version {version}",
   "translatedBy": "Translated by {translators}"
 }
