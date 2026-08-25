@@ -11,6 +11,10 @@
   --ghost-border: #6f6f73;
   --chip-fill: #2b2b2e;
   --chip-border: #7b7b7f;
+  /* Panel surfaces shared by both dialogs: hairline dividers and quiet
+     borders, plus the inset fill of every text field. */
+  --hairline: #333335;
+  --field-fill: #29292b;
   --grip-idle: #3c3c3f;
   --grip-hover: #58585c;
   --grip-ink: var(--accent);
@@ -212,7 +216,7 @@ button {
   justify-content: center;
   border-radius: 16px;
   background: #1d1d1f;
-  border: 1px solid #333335;
+  border: 1px solid var(--hairline);
   transition: background var(--duration-base) ease, border-color var(--duration-base) ease;
   overflow: hidden;
   pointer-events: none;
@@ -601,11 +605,11 @@ button {
   width: 500px;
   height: 560px;
   border-radius: 20px;
-  background: linear-gradient(180deg, #1f1f21 0%, #131315 100%);
+  /* Flat, like the disc: the panels earn elevation from the drop shadow
+     alone, never from gradients or inset highlights. */
+  background: #17171a;
   border: 1px solid #4a4a4c;
-  box-shadow:
-    0 16px 40px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   display: flex;
   flex-direction: column;
   opacity: 0;
@@ -623,7 +627,6 @@ button {
 #settings {
   width: min(400px, calc(100vw - 24px));
   height: auto;
-  border-radius: 18px;
 }
 
 #settings.open,
@@ -635,20 +638,19 @@ button {
   transition-delay: 0s;
 }
 
+/* Both dialogs share one header anatomy: title left, close right, hairline
+   underneath — identical type scale and padding so the panels read as
+   siblings of the same app. */
 #settings-header,
 #actions-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 18px 12px;
+  padding: 16px 20px 12px;
   font-size: 16px;
   font-weight: 600;
   color: var(--accent);
-  border-bottom: 1px solid #333335;
-}
-
-#actions-header {
-  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 #actions-close,
@@ -682,16 +684,6 @@ button {
   }
 }
 
-/* Settings keeps its title compact next to the close button. */
-#settings-header {
-  padding: 12px 12px 10px 16px;
-  font-size: 14px;
-}
-
-#settings-header #settings-title {
-  letter-spacing: -0.01em;
-}
-
 #actions-tabs {
   flex: 0 0 auto;
   display: grid;
@@ -699,7 +691,7 @@ button {
   gap: 4px;
   margin: 12px 20px 0;
   padding: 4px;
-  border: 1px solid #333335;
+  border: 1px solid var(--hairline);
   border-radius: 12px;
   background: #232325;
 }
@@ -733,27 +725,30 @@ button {
 
 /* ---------------------------------------------------------- general section */
 
+/* Section captions share one voice across both dialogs: small, semi-bold,
+   uppercase, letter-spaced (matches "Actions" / "Groups" in the editor),
+   and sit on the same 20px gutter as the header and the grouped list. */
 .settings-section-title {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--ink-dim);
-  letter-spacing: 0;
-  padding: 14px 16px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 14px 20px 8px;
 }
 
 #settings-general {
   padding-bottom: 4px;
 }
 
-/* Inset grouped list (macOS System Settings style): a single rounded
-   container whose rows are split by hairline dividers, with the control
-   flush against the trailing edge. */
-.settings-group {
-  margin: 0 16px;
-  border: 1px solid #2f2f31;
-  border-radius: 12px;
-  background: #252527;
-  overflow: hidden;
+/* Settings rows use the editor's card language: each setting is its own
+   bordered pill-card, stacked with the same gap as action and group cards.
+   The inset-grouped macOS idiom is replaced entirely. */
+.settings-list {
+  margin: 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .settings-list-row {
@@ -761,22 +756,23 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 46px;
+  min-height: 48px;
   padding: 0 14px;
+  border: 1px solid var(--ghost-border);
+  border-radius: 14px;
+  background: var(--chip-fill);
+  transition: border-color 140ms ease-out, background 140ms ease-out;
+}
+
+label.settings-list-row {
   cursor: pointer;
-  transition: background var(--duration-fast) ease;
 }
 
-.settings-list-row + .settings-list-row {
-  border-top: 1px solid #2d2d2f;
-}
-
-.settings-list-row:hover {
-  background: var(--ghost-fill);
-}
-
-.settings-list-row:active {
-  background: var(--ghost-fill-active);
+@media (hover:hover) {
+  .settings-list-row:hover {
+    border-color: #9a9a9e;
+    background: #303032;
+  }
 }
 
 .settings-row-label {
@@ -814,7 +810,7 @@ button {
    The faintest ink step: metadata, not a control. */
 .settings-version {
   margin: 0;
-  padding: 14px 16px 4px;
+  padding: 14px 20px 4px;
   font-size: 11px;
   letter-spacing: 0.01em;
   color: var(--ink-faint);
@@ -822,17 +818,18 @@ button {
 }
 
 /* Compact pop-up controls hugging the row's trailing edge: the language
-   select and the update-check button share the same pill treatment. */
+   select and the update-check button share the launcher's full-pill
+   treatment (same height and radius as "Add group" / "Group actions"). */
 #settings-lang,
 #settings-update-check {
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--accent);
   background: var(--ghost-fill);
   border: 1px solid var(--ghost-border);
-  border-radius: 8px;
-  min-height: 30px;
+  border-radius: 17px;
+  min-height: 34px;
   min-width: 128px;
   outline: none;
   cursor: pointer;
@@ -842,13 +839,13 @@ button {
 }
 
 #settings-lang {
-  padding: 0 26px 0 11px;
+  padding: 0 32px 0 14px;
   appearance: none;
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9ca0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 12px 12px;
+  background-position: right 11px center;
+  background-size: 13px 13px;
 }
 
 #settings-update-check {
@@ -912,7 +909,7 @@ button {
   position: absolute;
   inset: 0;
   border-radius: 13px;
-  background: #39393b;
+  background: #1d1d1f;
   pointer-events: none;
   transition: background var(--duration-fast) ease;
 }
@@ -925,16 +922,18 @@ button {
   width: 22px;
   height: 22px;
   border-radius: 11px;
-  background: #fff;
+  background: var(--accent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  transition: transform var(--duration-fast) var(--ease-out);
+  transition: transform var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) ease;
 }
 
 .switch input:checked + .switch-track {
-  background: #30d158;
+  background-color: var(--accent);
 }
 
 .switch input:checked + .switch-track::after {
+  background-color: var(--disc);
   transform: translateX(18px);
 }
 
@@ -968,6 +967,15 @@ button {
 #settings-rows::-webkit-scrollbar-thumb:hover,
 #actions-rows::-webkit-scrollbar-thumb:hover {
   background: #68686a;
+}
+
+/* The settings instance keeps its own inset rhythm: the section title and
+   the grouped list carry their own side padding, so the scroll wrapper only
+   closes the gap to the footer (and takes over scrolling on short windows,
+   exactly like #actions-rows does for the editor). */
+#settings #settings-rows {
+  padding: 0 0 2px;
+  gap: 0;
 }
 
 /* One action card. Two content lines (name+type / value+group) with a
@@ -1083,7 +1091,7 @@ button {
   font: inherit;
   font-size: 13px;
   color: var(--accent);
-  background: #29292b;
+  background: var(--field-fill);
   border: 1px solid var(--ghost-border);
   border-radius: 9px;
   min-height: var(--editor-control-h);
@@ -1275,7 +1283,7 @@ button {
 /* ----------------------------------------------------------- groups editor */
 
 .settings-groups {
-  border: 1px solid #333335;
+  border: 1px solid var(--hairline);
   border-radius: 14px;
   background: #222224;
   padding: 16px 16px 18px;
@@ -1368,7 +1376,7 @@ button {
   font: inherit;
   font-size: 13px;
   color: var(--accent);
-  background: #29292b;
+  background: var(--field-fill);
   border: 1px solid var(--ghost-border);
   border-radius: 9px;
   min-height: var(--editor-control-h);
@@ -1405,7 +1413,7 @@ button {
   height: var(--editor-icon-size);
   border-radius: 20px;
   border: 1px solid var(--ghost-border);
-  background: #29292b;
+  background: var(--field-fill);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1664,7 +1672,7 @@ button {
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ink-dim);
-  background: #29292b;
+  background: var(--field-fill);
   border: 1px solid #3b3b3d;
   border-radius: 10px;
   padding: 2px 8px;
@@ -1754,7 +1762,7 @@ button {
   border: none;
   border-bottom: 1px solid var(--ghost-border);
   border-radius: 0;
-  background: #29292b;
+  background: var(--field-fill);
   min-height: 42px;
   font-size: 13px;
 }
@@ -1847,7 +1855,7 @@ button {
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 20px 18px;
-  border-top: 1px solid #333335;
+  border-top: 1px solid var(--hairline);
 }
 
 #settings-error,
@@ -1860,7 +1868,9 @@ button {
   text-overflow: ellipsis;
 }
 
-#settings-error.visible {
+/* Both dialogs report failures in the same red. */
+#settings-error.visible,
+#actions-error:not(:empty) {
   color: #ff6961;
 }
 
@@ -1918,23 +1928,14 @@ button {
     padding-right: 14px;
   }
 
-  .settings-section-title {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
-  .settings-group {
-    margin-left: 12px;
-    margin-right: 12px;
+  .settings-list {
+    margin-left: 14px;
+    margin-right: 14px;
   }
 
   #settings-rows,
   #actions-rows {
     padding: 16px 14px 20px;
-  }
-
-  #actions-header {
-    padding: 14px 14px 10px;
   }
 
   #actions-tabs {
@@ -2082,7 +2083,7 @@ button {
   #settings,
   #actions,
   .settings-list-row,
-  .settings-group,
+  .settings-list,
   .settings-row,
   .settings-row input[type="text"],
   .settings-row .s-kind-group,

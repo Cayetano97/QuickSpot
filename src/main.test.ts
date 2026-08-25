@@ -92,42 +92,44 @@ function installDom(): void {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
         </div>
-        <section class="settings-section" id="settings-general" aria-labelledby="settings-general-heading">
-          <h2 class="settings-section-title" id="settings-general-heading">General</h2>
-          <div class="settings-group">
-            <div class="settings-list-row">
-              <label class="settings-row-label" for="settings-lang" id="settings-language-label">Language</label>
-              <select id="settings-lang" aria-label="Language"></select>
-              <p class="settings-translators" id="settings-translators"></p>
+        <div id="settings-rows">
+          <section class="settings-section" id="settings-general" aria-labelledby="settings-general-heading">
+            <h2 class="settings-section-title" id="settings-general-heading">General</h2>
+            <div class="settings-list">
+              <div class="settings-list-row">
+                <label class="settings-row-label" for="settings-lang" id="settings-language-label">Language</label>
+                <select id="settings-lang" aria-label="Language"></select>
+                <p class="settings-translators" id="settings-translators"></p>
+              </div>
+              <label class="settings-list-row">
+                <span class="settings-row-label" id="settings-dock-label">Magnify on hover</span>
+                <span class="switch">
+                  <input id="settings-magnify" type="checkbox" />
+                  <span class="switch-track"></span>
+                </span>
+              </label>
+              <label class="settings-list-row">
+                <span class="settings-row-label" id="settings-icons-label">Show action icons</span>
+                <span class="switch">
+                  <input id="settings-icons" type="checkbox" />
+                  <span class="switch-track"></span>
+                </span>
+              </label>
+              <label class="settings-list-row">
+                <span class="settings-row-label" id="settings-autostart-label">Launch at login</span>
+                <span class="switch">
+                  <input id="settings-autostart" type="checkbox" />
+                  <span class="switch-track"></span>
+                </span>
+              </label>
+              <div class="settings-list-row">
+                <span class="settings-row-label" id="settings-update-label">Check for updates</span>
+                <button id="settings-update-check" type="button">Check now</button>
+              </div>
             </div>
-            <label class="settings-list-row">
-              <span class="settings-row-label" id="settings-dock-label">Magnify on hover</span>
-              <span class="switch">
-                <input id="settings-magnify" type="checkbox" />
-                <span class="switch-track"></span>
-              </span>
-            </label>
-            <label class="settings-list-row">
-              <span class="settings-row-label" id="settings-icons-label">Show action icons</span>
-              <span class="switch">
-                <input id="settings-icons" type="checkbox" />
-                <span class="switch-track"></span>
-              </span>
-            </label>
-            <label class="settings-list-row">
-              <span class="settings-row-label" id="settings-autostart-label">Launch at login</span>
-              <span class="switch">
-                <input id="settings-autostart" type="checkbox" />
-                <span class="switch-track"></span>
-              </span>
-            </label>
-            <div class="settings-list-row">
-              <span class="settings-row-label" id="settings-update-label">Check for updates</span>
-              <button id="settings-update-check" type="button">Check now</button>
-            </div>
-          </div>
-        </section>
-        <p class="settings-version" id="settings-version"></p>
+          </section>
+          <p class="settings-version" id="settings-version"></p>
+        </div>
         <div id="settings-footer">
           <span id="settings-error"></span>
           <button id="settings-save" type="submit">Save</button>
