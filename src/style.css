@@ -1,22 +1,26 @@
 :root {
-  --accent: #f5f5f7;
-  --disc: #111113;
-  --disc-core: #111113;
+  /* Surfaces and ink track a single near-neutral gray register (never any
+     blue/violet tint): the disc is a solid near-black, chips and cards sit
+     above it, and hairlines divide them — a flat, Linear/Spotify-style stack
+     with no gradients or transparency anywhere. */
+  --accent: #f2f2f4;
+  --disc: #0d0d0e;
+  --disc-core: #0a0a0b;
   --disc-rim: #000000;
-  --ink-dim: #b3b3b8;
-  --ink-muted: #949499;
-  --ink-faint: #7f7f84;
-  --ghost-fill: #2c2c2f;
-  --ghost-fill-active: #3b3b3f;
-  --ghost-border: #6f6f73;
-  --chip-fill: #2b2b2e;
-  --chip-border: #7b7b7f;
+  --ink-dim: #b7b7bb;
+  --ink-muted: #9a9a9e;
+  --ink-faint: #7e7e82;
+  --ghost-fill: #2a2a2c;
+  --ghost-fill-active: #39393b;
+  --ghost-border: #68686b;
+  --chip-fill: #26262a;
+  --chip-border: #767679;
   /* Panel surfaces shared by both dialogs: hairline dividers and quiet
      borders, plus the inset fill of every text field. */
   --hairline: #333335;
   --field-fill: #29292b;
-  --grip-idle: #3c3c3f;
-  --grip-hover: #58585c;
+  --grip-idle: #434346;
+  --grip-hover: #636366;
   --grip-ink: var(--accent);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
@@ -208,19 +212,19 @@ button {
   left: 50%;
   top: 264px;
   transform: translateX(-50%);
-  min-width: 136px;
-  max-width: 260px;
-  height: 32px;
+  min-width: 144px;
+  max-width: 272px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 16px;
-  background: #1d1d1f;
+  border-radius: 17px;
+  background: #1b1b1d;
   border: 1px solid var(--hairline);
   transition: background var(--duration-base) ease, border-color var(--duration-base) ease;
   overflow: hidden;
   pointer-events: none;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent);
   letter-spacing: 0.01em;
 }
@@ -230,13 +234,15 @@ button {
 }
 
 #query-wrap.active {
-  background: #242426;
-  border-color: #59595b;
+  background: #222224;
+  border-color: #58585b;
 }
 
+/* Focus reads as a flat "halo": a hairline border that steps up to the full
+   accent, no glow or shadow — quick to paint and unmistakable. */
 #overlay:has(#query:focus) #query-wrap {
-  background: #242426;
-  border-color: #7a7a7c;
+  background: #222224;
+  border-color: var(--accent);
 }
 
 #query-mirror {
@@ -249,7 +255,7 @@ button {
 
 #caret {
   width: 1.5px;
-  height: 13px;
+  height: 15px;
   background: var(--accent);
   margin-left: 1px;
   opacity: 0;
@@ -257,6 +263,37 @@ button {
 
 #overlay.open #caret {
   animation: qs-blink 1s steps(1, end) infinite;
+}
+
+/* "N more" counter: a whisper-quiet caption under the query that appears
+   only when a search matches more actions than the ring can hold, so the
+   launcher stays honest about hidden results without breaking the circle.
+   Pure text, fully static — no animation cost. */
+#more-count {
+  position: absolute;
+  left: 50%;
+  top: 306px;
+  transform: translateX(-50%);
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  background: var(--chip-fill);
+  border: 1px solid var(--hairline);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#more-count.visible {
+  opacity: 1;
+  visibility: visible;
 }
 
 @keyframes qs-blink {
@@ -283,7 +320,7 @@ button {
   border: none;
   outline: none;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
   color: transparent;
   caret-color: transparent;
@@ -495,7 +532,9 @@ button {
   background: var(--ghost-fill-active);
   border-color: var(--accent);
   color: var(--accent);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  /* Flat selection: a solid inner ring, no drop shadow or glow (cheaper to
+     repaint while magnifying and keeps the chip optically clean). */
+  box-shadow: inset 0 0 0 1px rgba(242, 242, 244, 0.5);
 }
 
 .chip .chip-label {
@@ -592,7 +631,8 @@ button {
 #overlay.panel #query,
 #overlay.panel #chips,
 #overlay.panel #grip,
-#overlay.panel #empty-state {
+#overlay.panel #empty-state,
+#overlay.panel #more-count {
   opacity: 0 !important;
   pointer-events: none !important;
 }
@@ -607,7 +647,7 @@ button {
   border-radius: 20px;
   /* Flat, like the disc: the panels earn elevation from the drop shadow
      alone, never from gradients or inset highlights. */
-  background: #17171a;
+  background: #171718;
   border: 1px solid #4a4a4c;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   display: flex;
@@ -693,7 +733,7 @@ button {
   padding: 4px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: #232325;
+  background: #242425;
 }
 
 #actions-tabs [role="tab"] {

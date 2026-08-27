@@ -74,6 +74,16 @@ export function filterActions(actions: readonly Action[], query: string): number
   return out;
 }
 
+/** Count of every action matching the query (uncapped); filterActions caps
+ * its return at MAX_VISIBLE, and the launcher shows the delta as "N more". */
+export function countMatches(actions: readonly Action[], query: string): number {
+  if (query.length === 0) return actions.length;
+  const q = query.toLowerCase();
+  let n = 0;
+  for (const a of actions) if (a.name.toLowerCase().includes(q)) n++;
+  return n;
+}
+
 /**
  * Stable grouping by group id: returns the same actions reordered so every
  * action sharing a group becomes contiguous. Relative order is preserved

@@ -5,6 +5,7 @@
   },
   "placeholder": "Escribe para buscar...",
   "noMatches": "No hay acciones coincidentes",
+  "moreResults": "+{count} más",
   "runError": "No se pudo ejecutar: {msg}",
   "searchAria": "Buscar acciones",
   "actionsAria": "Acciones disponibles",

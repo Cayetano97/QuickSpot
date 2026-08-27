@@ -39,6 +39,7 @@ import {
 } from "./lib/i18n";
 import {
   capUtf8Bytes,
+  countMatches,
   filterActions,
   isHexColor,
   isReadableOnDark,
@@ -87,6 +88,7 @@ const queryWrap = document.querySelector<HTMLElement>("#query-wrap")!;
 const mirror = document.querySelector<HTMLElement>("#query-mirror")!;
 const chipsHost = document.querySelector<HTMLElement>("#chips")!;
 const emptyState = document.querySelector<HTMLElement>("#empty-state")!;
+const moreCount = document.querySelector<HTMLElement>("#more-count")!;
 const runError = document.querySelector<HTMLElement>("#run-error")!;
 let runErrorTimer = 0;
 
@@ -366,6 +368,15 @@ function syncEmptyState(): void {
       ? t(currentLanguage, "noActions")
       : "";
   emptyState.classList.toggle("visible", overlay.phase === "visible" && (noResults || noActionsYet));
+
+  // "+N more": how many matches fall outside the visible ring. total counts
+  // every match uncapped; filtered holds at most MAX_VISIBLE, so the delta
+  // is the hidden remainder. Whisper-quiet and only while the overlay is up.
+  const total = countMatches(actions, queryText);
+  const hidden = total - filtered.length;
+  const showMore = hidden > 0 && filtered.length > 0 && overlay.phase === "visible";
+  moreCount.textContent = showMore ? t(currentLanguage, "moreResults", { count: String(hidden) }) : "";
+  moreCount.classList.toggle("visible", showMore);
 }
 
 /** Recomputed the effective language and re-renders every UI string. */

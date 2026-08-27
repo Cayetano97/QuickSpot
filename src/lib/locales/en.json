@@ -5,6 +5,7 @@
   },
   "placeholder": "Type to search...",
   "noMatches": "No matching actions",
+  "moreResults": "+{count} more",
   "runError": "Couldn't run: {msg}",
   "searchAria": "Search actions",
   "actionsAria": "Available actions",

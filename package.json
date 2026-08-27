@@ -20,11 +20,10 @@
     "@tauri-apps/cli": "2.11.4",
     "jsdom": "30.0.1",
     "typescript": "5.9.3",
-    "vite": "7.2.0",
-    "vitest": "4.1.10"
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
   },
   "allowScripts": {
-    "esbuild@0.28.2": true,
     "fsevents@2.3.3": true
   }
 }

@@ -80,6 +80,7 @@ function installDom(): void {
       <button id="hub"></button>
       <button id="add"></button>
       <div id="query-wrap"><span id="query-mirror"></span><span id="caret"></span><input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" /></div>
+      <span id="more-count" aria-hidden="true"></span>
       <div id="empty-state" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="run-error" role="alert" aria-live="assertive" aria-hidden="true"></div>
       <button id="minimize"></button>
