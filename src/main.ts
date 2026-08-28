@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { emit, listen } from "@tauri-apps/api/event";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { open as pickPath } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
@@ -305,12 +306,16 @@ const KIND_ICONS: Record<Action["kind"], string> = {
   command:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
   app: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
 };
 
 const KIND_LABEL_KEYS: Record<Action["kind"], DictKey> = {
   url: "kindUrl",
   command: "kindCommand",
   app: "kindApp",
+  file: "kindFile",
+  folder: "kindFolder",
 };
 
 for (let i = 0; i < MAX_VISIBLE; i++) {
@@ -757,15 +762,17 @@ for (const tab of [actionsTab, groupsTab]) {
 }
 
 // Clicking outside a picker dismisses it. The actions panel owns all the
-// app/group/group-select pickers, so only it needs the listener.
+// app/group/group-select/kind pickers, so only it needs the listener.
 actionsRows.addEventListener("click", (e) => {
   const target = e.target as HTMLElement;
   if (target.closest(".app-picker") || target.closest(".s-app-browse")) return;
   if (target.closest(".g-picker") || target.closest(".g-swatch")) return;
   if (target.closest(".s-group-picker") || target.closest(".s-group-trigger")) return;
+  if (target.closest(".s-kind-picker")) return;
   closeAppPickers();
   closeGroupPickers();
   closeGroupSelects();
+  closeKindPickers();
 });
 
 settingsPanel.addEventListener("submit", (e) => {
@@ -969,7 +976,13 @@ function openActions(): void {
   activeActionsTab = "actions";
   rebuildActionsRows();
   focusPanel(actionsPanel);
-  actionsRows.querySelector<HTMLInputElement>(".s-name")?.focus();
+  // Open the first card pinned with the caret in its name field, so the
+  // panel is immediately typeable.
+  const firstRow = actionsRows.querySelector<HTMLElement>(".settings-row");
+  if (firstRow) {
+    firstRow.classList.add("pin");
+    firstRow.querySelector<HTMLInputElement>(".s-name")?.focus();
+  }
 }
 
 /** Hides the launcher controls and makes the panel the only tabbable area. */
@@ -1404,7 +1417,8 @@ function attachAppPicker(row: HTMLElement, value: HTMLInputElement, name: HTMLIn
   });
 
   picker.append(search, list);
-  row.appendChild(picker);
+  // The picker lives inside the foldable body so it animates with the card.
+  (row.querySelector<HTMLElement>(".s-body-grid") ?? row).appendChild(picker);
 }
 
 // ----------------------------------------------------------- groups editor
@@ -1678,6 +1692,89 @@ function collectGroupsFromRows(): Group[] {
   return out;
 }
 
+// ------------------------------------------------------- popover placement
+
+const ACTIONS_POPOVER_GAP = 6;
+
+/**
+ * Keep an actions-editor popover inside the visible scroll viewport. A simple
+ * up/down flip is not enough: a popover belonging to the first visible row
+ * could still overlap the tabs when there is no room above. In that case,
+ * scroll the editor in the direction that creates room, then cap the popup
+ * only as a last resort for unusually small windows.
+ */
+function positionActionsPopover(trigger: HTMLElement, popup: HTMLElement): void {
+  // A previous open may have applied a viewport-specific max-height. Remove
+  // it before measuring so a later open can grow again after the editor moves.
+  popup.style.removeProperty("max-height");
+  trigger.scrollIntoView?.({ block: "nearest" });
+
+  const menuHeight = Math.max(popup.offsetHeight, popup.getBoundingClientRect().height);
+  const measure = (): {
+    triggerTop: number;
+    triggerBottom: number;
+    viewportTop: number;
+    viewportBottom: number;
+    above: number;
+    below: number;
+  } => {
+    const triggerRect = trigger.getBoundingClientRect();
+    const viewport = actionsRows.getBoundingClientRect();
+    const above = Math.max(0, triggerRect.top - viewport.top - ACTIONS_POPOVER_GAP);
+    const below = Math.max(0, viewport.bottom - triggerRect.bottom - ACTIONS_POPOVER_GAP);
+    return {
+      triggerTop: triggerRect.top,
+      triggerBottom: triggerRect.bottom,
+      viewportTop: viewport.top,
+      viewportBottom: viewport.bottom,
+      above,
+      below,
+    };
+  };
+  const fitsUp = (m: ReturnType<typeof measure>): boolean => m.above >= menuHeight;
+  const fitsDown = (m: ReturnType<typeof measure>): boolean => m.below >= menuHeight;
+
+  let placement = measure();
+  let openUp = false;
+  if (fitsDown(placement)) {
+    // Prefer the natural direction whenever the complete menu fits below.
+    openUp = false;
+  } else if (fitsUp(placement)) {
+    openUp = true;
+  } else {
+    // Neither side fits at the current scroll position. Prefer the side with
+    // more usable room and scroll only as far as possible without hiding the
+    // trigger or moving the popup into the tab/header area.
+    openUp = placement.above > placement.below;
+    const room = openUp ? placement.above : placement.below;
+    const needed = Math.max(0, menuHeight - room);
+    if (openUp) {
+      const safeScroll = Math.max(0, placement.viewportBottom - placement.triggerTop + ACTIONS_POPOVER_GAP);
+      actionsRows.scrollTop -= Math.min(needed, safeScroll);
+    } else {
+      const safeScroll = Math.max(0, placement.triggerBottom - placement.viewportTop + ACTIONS_POPOVER_GAP);
+      actionsRows.scrollTop += Math.min(needed, safeScroll);
+    }
+    placement = measure();
+
+    // A scroll boundary may prevent the preferred movement. Use the other
+    // side when it became the only side with enough space.
+    if (openUp ? !fitsUp(placement) && fitsDown(placement) : !fitsDown(placement) && fitsUp(placement)) {
+      openUp = !openUp;
+    }
+  }
+
+  popup.classList.toggle("open-up", openUp);
+
+  // If the available viewport is smaller than the menu (for example on a
+  // very small window), keep the popup itself visible and let its options
+  // scroll instead of clipping the bottom or covering the tabs.
+  const available = openUp ? placement.above : placement.below;
+  if (menuHeight > available && available > 0) {
+    popup.style.maxHeight = `${available}px`;
+  }
+}
+
 // ------------------------------------------------------- group select
 
 /** Close every open group-select popup (except `except`, if given). */
@@ -1829,12 +1926,7 @@ function buildGroupPicker(host: HTMLElement, initial: string): HTMLElement {
     listbox.hidden = false;
     trigger.setAttribute("aria-expanded", "true");
     syncActive(activeIdx, false);
-    // Flip the popover upward when it would overflow the panel below.
-    listbox.classList.toggle(
-      "open-up",
-      trigger.getBoundingClientRect().bottom + listbox.offsetHeight + 12 >
-        actionsRows.getBoundingClientRect().bottom,
-    );
+    positionActionsPopover(trigger, listbox);
     listbox.focus();
   };
 
@@ -1946,38 +2038,136 @@ function localizeGroupsEditor(): void {
   for (const row of groupRows()) localizeGroupRow(row);
 }
 
-let kindGroupSeq = 0;
+let kindPickerSeq = 0;
 
-/** Segmented radio group for the action kind (URL / Command / App). */
-function buildKindGroup(kind: Action["kind"]): HTMLElement {
-  const L = currentLanguage;
-  const group = document.createElement("div");
-  group.className = "s-kind-group";
-  group.setAttribute("role", "radiogroup");
-  group.setAttribute("aria-label", t(L, "actionTypeLabel"));
-  const name = `k-${++kindGroupSeq}`;
-  for (const k of ["url", "command", "app"] as const) {
-    const label = document.createElement("label");
-    label.className = "s-kind-opt";
-    const radio = document.createElement("input");
-    radio.type = "radio";
-    radio.className = "s-kind";
-    radio.name = name;
-    radio.value = k;
-    radio.checked = k === kind;
-    radio.tabIndex = k === kind ? 0 : -1;
-    const icon = document.createElement("span");
-    icon.className = "s-kind-icon";
-    icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = KIND_ICONS[k];
-    const text = document.createElement("span");
-    text.className = "s-kind-text";
-    text.textContent = t(L, KIND_LABEL_KEYS[k]);
-    label.append(radio, icon, text);
-    label.classList.toggle("on", k === kind);
-    group.appendChild(label);
+/** Close every open action-kind popup (except `except`, if given). */
+function closeKindPickers(except?: HTMLElement): void {
+  for (const listbox of actionsRows.querySelectorAll<HTMLElement>(".s-kind-listbox")) {
+    if (listbox === except || listbox.hidden) continue;
+    listbox.hidden = true;
+    listbox.parentElement
+      ?.querySelector<HTMLElement>(".s-kind-trigger")
+      ?.setAttribute("aria-expanded", "false");
   }
-  return group;
+}
+
+/** Type picker matching the group picker: one trigger and an accessible
+ * listbox popover with mouse and keyboard selection. */
+function buildKindPicker(kind: Action["kind"]): HTMLElement {
+  const picker = document.createElement("div");
+  picker.className = "s-kind-picker";
+  const listId = `ksel-${++kindPickerSeq}`;
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "s-kind-trigger";
+  trigger.dataset.value = kind;
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("aria-controls", listId);
+  const icon = document.createElement("span");
+  icon.className = "s-kind-trigger-icon";
+  icon.setAttribute("aria-hidden", "true");
+  trigger.appendChild(icon);
+  const listbox = document.createElement("div");
+  listbox.className = "s-kind-listbox";
+  listbox.id = listId;
+  listbox.hidden = true;
+  listbox.tabIndex = -1;
+  listbox.setAttribute("role", "listbox");
+  listbox.setAttribute("aria-label", t(currentLanguage, "actionTypeLabel"));
+  const kinds = ["url", "command", "app", "file", "folder"] as const;
+  let options: HTMLButtonElement[] = [];
+  let active = 0;
+
+  const render = (): void => {
+    listbox.replaceChildren();
+    options = kinds.map((k) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "s-kind-option";
+      option.id = `${listId}-opt-${k}`;
+      option.tabIndex = -1;
+      option.dataset.value = k;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(k === trigger.dataset.value));
+      const optionIcon = document.createElement("span");
+      optionIcon.className = "s-kind-option-icon";
+      optionIcon.innerHTML = KIND_ICONS[k];
+      const label = document.createElement("span");
+      label.className = "s-kind-option-label";
+      label.textContent = t(currentLanguage, KIND_LABEL_KEYS[k]);
+      option.append(optionIcon, label);
+      listbox.appendChild(option);
+      return option;
+    });
+    active = Math.max(0, kinds.indexOf(trigger.dataset.value as typeof kinds[number]));
+    syncActive(false);
+    icon.innerHTML = KIND_ICONS[trigger.dataset.value as Action["kind"]];
+  };
+  const syncActive = (scroll: boolean): void => {
+    options.forEach((option, index) => option.classList.toggle("active", index === active));
+    if (options[active]) {
+      listbox.setAttribute("aria-activedescendant", options[active].id || "");
+      if (scroll) options[active].scrollIntoView?.({ block: "nearest" });
+    }
+  };
+  const close = (focus = false): void => {
+    listbox.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    if (focus) trigger.focus();
+  };
+  const closeOthers = (): void => closeKindPickers(listbox);
+  const open = (): void => {
+    closeOthers();
+    render();
+    listbox.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    positionActionsPopover(trigger, listbox);
+    listbox.focus();
+  };
+  const choose = (option: HTMLElement): void => {
+    trigger.dataset.value = option.dataset.value ?? "url";
+    render();
+    close(true);
+    trigger.dispatchEvent(new CustomEvent("kindchange", { bubbles: true }));
+  };
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (listbox.hidden) open();
+    else close(true);
+  });
+  listbox.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(true); return; }
+    if (e.key === "Tab") {
+      close();
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(options[active]); return; }
+    let next = -1;
+    if (e.key === "ArrowDown") next = (active + 1) % options.length;
+    if (e.key === "ArrowUp") next = (active - 1 + options.length) % options.length;
+    if (e.key === "Home") next = 0;
+    if (e.key === "End") next = options.length - 1;
+    if (next >= 0) { e.preventDefault(); active = next; syncActive(true); }
+  });
+  listbox.addEventListener("pointermove", (e) => {
+    const option = (e.target as HTMLElement).closest<HTMLButtonElement>(".s-kind-option");
+    if (option) { active = options.indexOf(option); syncActive(false); }
+  });
+  listbox.addEventListener("click", (e) => {
+    const option = (e.target as HTMLElement).closest<HTMLButtonElement>(".s-kind-option");
+    if (option) choose(option);
+  });
+
+  // No focusout-based dismissal here: on a real click the focus reaches the
+  // button before the click event (and some engines — WebKit, Firefox —
+  // report `relatedTarget: null` for that move), so closing on focus loss
+  // would make the button reopen instead of toggling. Like the group picker,
+  // the popup closes on: choosing an option, Escape/Tab, or an outside click
+  // (the actionsRows handler).
+  render();
+  picker.append(trigger, listbox);
+  return picker;
 }
 
 function buildSettingsRow(a: Action): HTMLElement {
@@ -1986,6 +2176,44 @@ function buildSettingsRow(a: Action): HTMLElement {
   row.className = "settings-row";
   row.setAttribute("role", "listitem");
   row.setAttribute("aria-label", a.name || t(L, "namePlaceholder"));
+
+  // Collapsed face: the action's kind icon (plus its group color when set).
+  // The card unfolds on hover or keyboard focus; clicking the face expands
+  // it and drops the caret straight into the name field.
+  const face = document.createElement("button");
+  face.type = "button";
+  face.className = "s-face";
+  face.setAttribute("aria-label", a.name || t(L, "namePlaceholder"));
+  const faceIcon = document.createElement("span");
+  faceIcon.className = "s-face-icon";
+  faceIcon.setAttribute("aria-hidden", "true");
+  faceIcon.innerHTML = KIND_ICONS[a.kind];
+  const faceDot = document.createElement("span");
+  faceDot.className = "s-face-dot";
+  faceDot.setAttribute("aria-hidden", "true");
+  if (a.group) faceDot.style.background = groupTriggerColor(a.group);
+  else faceDot.hidden = true;
+  face.append(faceIcon, faceDot);
+  // Clicking the face pins the card open (hover alone can't be relied on:
+  // touch has none, and the freshly focused field must be visible to take
+  // the caret) and drops focus straight into the name field.
+  face.addEventListener("click", () => {
+    row.classList.add("pin");
+    name.focus();
+  });
+
+  // The unfolding editor body: everything the card shows today, wrapped in
+  // the disclosure container that CSS animates (grid-template-rows 0fr ->
+  // 1fr). Fields stay visibility:hidden while collapsed so they never
+  // enter the tab order.
+  const body = document.createElement("div");
+  body.className = "s-body";
+  const bodyClip = document.createElement("div");
+  bodyClip.className = "s-body-clip";
+  const bodyGrid = document.createElement("div");
+  bodyGrid.className = "s-body-grid";
+  body.append(bodyClip);
+  bodyClip.append(bodyGrid);
 
   const top = document.createElement("div");
   top.className = "settings-row-top";
@@ -2000,7 +2228,7 @@ function buildSettingsRow(a: Action): HTMLElement {
   nameField.className = "s-name-field";
   nameField.appendChild(name);
 
-  const kindGroup = buildKindGroup(a.kind);
+  const kindPicker = buildKindPicker(a.kind);
 
   // Right rail: reorder and delete, stacked.
   const rail = document.createElement("div");
@@ -2060,36 +2288,79 @@ function buildSettingsRow(a: Action): HTMLElement {
   browse.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>';
 
+  // File and folder kinds each get their own native dialog. The dialogs are
+  // modal, so the picked path is written straight into the value field (and
+  // the name, when still blank).
+  const fileBrowse = document.createElement("button");
+  fileBrowse.type = "button";
+  fileBrowse.className = "s-file-browse";
+  fileBrowse.setAttribute("aria-label", t(L, "browseFile"));
+  fileBrowse.title = t(L, "browseFile");
+  fileBrowse.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+
+  const folderBrowse = document.createElement("button");
+  folderBrowse.type = "button";
+  folderBrowse.className = "s-folder-browse";
+  folderBrowse.setAttribute("aria-label", t(L, "browseFolder"));
+  folderBrowse.title = t(L, "browseFolder");
+  folderBrowse.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
+
+  const pick = async (directory: boolean): Promise<void> => {
+    try {
+      const picked = await pickPath({
+        directory,
+        multiple: false,
+        title: t(currentLanguage, directory ? "browseFolder" : "browseFile"),
+      });
+      if (typeof picked !== "string") return;
+      value.value = picked;
+      if (name.value.trim() === "") {
+        name.value = picked.split(/[\\/]/).pop() ?? picked;
+        localizeSettingsRow(row);
+      }
+      value.focus();
+    } catch {
+      // Dialog cancelled or unavailable: leave the row untouched.
+    }
+  };
+  fileBrowse.addEventListener("click", () => void pick(false));
+  folderBrowse.addEventListener("click", () => void pick(true));
+
   // The group picker rides the value line; its popover floats below the
   // trigger without pushing the rest of the card.
   const groupField = document.createElement("div");
   groupField.className = "s-group-field";
   buildGroupPicker(groupField, a.group ?? "");
+  // Keep the collapsed face's group chip in step with the picker: any click
+  // inside the field re-reads the trigger's committed value.
+  groupField.addEventListener("click", () => {
+    const gv = row.querySelector<HTMLElement>(".s-group-trigger")?.dataset.value ?? "";
+    faceDot.hidden = gv === "";
+    if (gv) faceDot.style.background = groupTriggerColor(gv);
+  });
 
   // The browser executable is no longer edited in the UI, but a value set
   // in the config file must survive a save round-trip untouched.
   row.dataset.browser = a.browser ?? "";
 
   const syncKind = () => {
-    const k = row.querySelector<HTMLInputElement>(".s-kind:checked")?.value ?? "url";
+    const k = (row.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ??
+      "url") as Action["kind"];
+    faceIcon.innerHTML = KIND_ICONS[k];
     value.placeholder = kindValuePlaceholder(k);
     browse.hidden = k !== "app";
+      fileBrowse.hidden = k !== "file";
+    folderBrowse.hidden = k !== "folder";
     row.classList.toggle("kind-app", k === "app");
+    row.classList.toggle("kind-file", k === "file");
+    row.classList.toggle("kind-folder", k === "folder");
   };
 
   // Selecting a kind keeps the group's roving tabindex on the chosen radio
   // and restyles the segments; the radios move natively with the arrows.
-  kindGroup.addEventListener("change", (e) => {
-    const radio = e.target as HTMLInputElement;
-    if (!radio.classList.contains("s-kind")) return;
-    for (const r of kindGroup.querySelectorAll<HTMLInputElement>(".s-kind")) r.tabIndex = -1;
-    radio.tabIndex = 0;
-    for (const opt of kindGroup.querySelectorAll<HTMLElement>(".s-kind-opt")) {
-      opt.classList.toggle(
-        "on",
-        opt.querySelector<HTMLInputElement>(".s-kind")?.checked ?? false,
-      );
-    }
+  kindPicker.addEventListener("kindchange", () => {
     syncKind();
   });
 
@@ -2109,9 +2380,10 @@ function buildSettingsRow(a: Action): HTMLElement {
   up.addEventListener("click", () => move(-1, up));
   down.addEventListener("click", () => move(1, down));
 
-  top.append(nameField, kindGroup);
-  valueWrap.append(valueField, browse, groupField, del);
-  row.append(top, rail, valueWrap);
+  top.append(nameField, kindPicker);
+  valueWrap.append(valueField, browse, fileBrowse, folderBrowse, groupField, del);
+  bodyGrid.append(top, rail, valueWrap);
+  row.append(face, body);
   attachAppPicker(row, value, name);
   syncKind();
   return row;
@@ -2124,7 +2396,11 @@ function kindValuePlaceholder(kind: string): string {
       ? "valuePlaceholderUrl"
       : kind === "command"
         ? "valuePlaceholderCommand"
-        : "valuePlaceholderApp",
+        : kind === "app"
+          ? "valuePlaceholderApp"
+          : kind === "file"
+            ? "valuePlaceholderFile"
+            : "valuePlaceholderFolder",
   );
 }
 
@@ -2138,21 +2414,14 @@ function localizeSettingsRow(row: HTMLElement): void {
   const up = row.querySelector<HTMLButtonElement>(".s-move-up")!;
   const down = row.querySelector<HTMLButtonElement>(".s-move-down")!;
   row.setAttribute("aria-label", name.value.trim() || t(L, "namePlaceholder"));
+  const face = row.querySelector<HTMLElement>(".s-face");
+  if (face) face.setAttribute("aria-label", name.value.trim() || t(L, "namePlaceholder"));
   name.placeholder = t(L, "namePlaceholder");
   name.setAttribute("aria-label", t(L, "namePlaceholder"));
-  const kindGroup = row.querySelector<HTMLElement>(".s-kind-group");
-  if (kindGroup) {
-    kindGroup.setAttribute("aria-label", t(L, "actionTypeLabel"));
-    for (const opt of kindGroup.querySelectorAll<HTMLElement>(".s-kind-opt")) {
-      const radio = opt.querySelector<HTMLInputElement>(".s-kind");
-      const text = opt.querySelector<HTMLElement>(".s-kind-text");
-      if (radio && text) {
-        text.textContent = t(L, KIND_LABEL_KEYS[radio.value as Action["kind"]]);
-      }
-    }
-  }
+  const kindListbox = row.querySelector<HTMLElement>(".s-kind-listbox");
+  if (kindListbox) kindListbox.setAttribute("aria-label", t(L, "actionTypeLabel"));
   value.placeholder = kindValuePlaceholder(
-    row.querySelector<HTMLInputElement>(".s-kind:checked")?.value ?? "url",
+    row.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ?? "url",
   );
   value.setAttribute("aria-label", t(L, "actionValueLabel"));
   const groupTrigger = row.querySelector<HTMLElement>(".s-group-trigger");
@@ -2175,6 +2444,16 @@ function localizeSettingsRow(row: HTMLElement): void {
     browse.setAttribute("aria-label", t(L, "browseApps"));
     browse.title = t(L, "browseApps");
   }
+  const fileBrowse = row.querySelector<HTMLButtonElement>(".s-file-browse");
+  if (fileBrowse) {
+    fileBrowse.setAttribute("aria-label", t(L, "browseFile"));
+    fileBrowse.title = t(L, "browseFile");
+  }
+  const folderBrowse = row.querySelector<HTMLButtonElement>(".s-folder-browse");
+  if (folderBrowse) {
+    folderBrowse.setAttribute("aria-label", t(L, "browseFolder"));
+    folderBrowse.title = t(L, "browseFolder");
+  }
   const apSearch = row.querySelector<HTMLInputElement>(".ap-search");
   if (apSearch) apSearch.placeholder = t(L, "appSearchPlaceholder");
 }
@@ -2184,7 +2463,7 @@ function collectSettingsActions(): Action[] {
   const out: Action[] = [];
   for (const row of actionsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     const name = row.querySelector<HTMLInputElement>(".s-name")!.value.trim();
-    const kind = (row.querySelector<HTMLInputElement>(".s-kind:checked")?.value ??
+    const kind = (row.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ??
       "url") as Action["kind"];
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
     const browser = row.dataset.browser ?? "";

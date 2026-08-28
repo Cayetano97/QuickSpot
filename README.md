@@ -50,7 +50,7 @@ Inside the overlay:
 
 - **Global hotkey** — open from anywhere: `Alt+Space`, `Option+Space`, `Super+Space`
 - **Drag to move** — grab the top pill; it never gets lost off-screen
-- **3 action kinds** — `url`, `command`, or `app`
+- **5 action kinds** — `url`, `command`, `app`, `file`, or `folder`
 - **Unlimited actions** — add as many as you want; shows the first 8 matches
 - **Reorder** — Up/Down buttons in the panel; order also sets search ranking
 - **Colored groups** — group actions and give each group a color
@@ -102,33 +102,17 @@ unknown `kind`) are skipped.
 | Field | Description |
 | --- | --- |
 | `name` | Display label; matched case-insensitively by the filter |
-| `kind` | `"url"`, `"command"`, or `"app"` |
-| `value` | URL, shell command, or app path / bundle id |
+| `kind` | `"url"`, `"command"`, `"app"`, `"file"`, or `"folder"` |
+| `value` | URL, shell command, app path / bundle id, file path, or folder path |
 | `browser` | Optional: custom browser executable for URLs. Set in the config file (not edited in the actions panel; a value there is preserved on save) |
 | `hint` | Optional: reserved for future use |
 | `group` | Optional: id of the group this action belongs to |
 | `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The actions panel manages groups and colors (curated palette plus a validated custom hex) |
 | `language` | Optional, top-level: `"system"` (follow the OS language) or any BCP-47-ish code with a locale file — currently `"en"`, `"es"`. Unknown codes fall back to English |
 
-## Project layout
-
-```
-QuickSpot/
-  index.html                # overlay DOM
-  src/                      # frontend (TypeScript + plain CSS)
-    main.ts                 # UI wiring, IPC, animation render loop
-    lib/                    # constants, easings, state machine, model
-  src-tauri/                # Rust backend
-    src/
-      lib.rs                # app wiring: tray, hotkey, lifecycle
-      overlay.rs            # window control, centering, drag clamp
-      config.rs             # JSON config parsing
-      actions.rs            # action execution
-      apps.rs               # installed-app discovery (app picker)
-      commands.rs           # IPC commands
-  quickspot.config.json     # legacy/dev template; the app's config lives
-                            # in the per-user config dir (see Configuration)
-```
+A `file` action opens its `value` with the OS default handler. A `folder`
+action opens its `value` in the OS file manager. The actions panel offers a
+separate native file picker for `file` and folder picker for `folder`.
 
 ## Testing
 
@@ -151,7 +135,7 @@ exercised on their real platforms.
 
 Each language is a single file in `src/lib/locales/` (`en.json`, `es.json`, …).
 The app loads every file in that folder at startup, so adding a language is
-just a PR with one new file — no code changes.
+just a PR with one new file.
 
 To add a language:
 

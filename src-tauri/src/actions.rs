@@ -17,6 +17,10 @@ pub enum Execution {
     UrlDefault(String),
     /// Launch `browser` with the URL as its only argument.
     UrlInBrowser { browser: String, url: String },
+    /// Open a file with its OS default handler.
+    PathDefault(String),
+    /// Open a folder with the OS file manager.
+    FolderDefault(String),
     /// Run through the platform shell.
     Shell { program: String, args: Vec<String> },
     /// Launch a binary directly.
@@ -74,6 +78,8 @@ pub fn plan(action: &Action) -> Execution {
                 None => Execution::UrlDefault(url),
             }
         }
+        ActionKind::File => Execution::PathDefault(action.value.clone()),
+        ActionKind::Folder => Execution::FolderDefault(action.value.clone()),
         ActionKind::Command => Execution::Shell {
             program: SHELL_PROGRAM.into(),
             args: SHELL_PREFIX
@@ -130,6 +136,10 @@ pub fn spawn(app: &AppHandle, action: &Action) -> Result<(), String> {
             cmd.arg(url);
             spawn_detached(&mut cmd)
         }
+        Execution::PathDefault(path) | Execution::FolderDefault(path) => app
+            .opener()
+            .open_path(path, None::<&str>)
+            .map_err(|e| e.to_string()),
         Execution::Shell { program, args } => {
             let mut cmd = Command::new(program);
             cmd.args(args);
@@ -261,6 +271,24 @@ mod tests {
                 browser: "C:/Program Files/Mozilla Firefox/firefox.exe".into(),
                 url: "https://github.com".into(),
             }
+        );
+    }
+
+    #[test]
+    fn file_path_opens_with_the_default_handler() {
+        let a = action(ActionKind::File, "/tmp/notes.txt", None);
+        assert_eq!(
+            plan(&a),
+            Execution::PathDefault("/tmp/notes.txt".into())
+        );
+    }
+
+    #[test]
+    fn folder_path_uses_the_folder_default_handler_plan() {
+        let a = action(ActionKind::Folder, "/Users/me/Projects", None);
+        assert_eq!(
+            plan(&a),
+            Execution::FolderDefault("/Users/me/Projects".into())
         );
     }
 

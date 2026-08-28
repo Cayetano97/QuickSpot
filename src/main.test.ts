@@ -30,6 +30,9 @@ vi.mock("@tauri-apps/plugin-autostart", () => autostart);
 const updater = vi.hoisted(() => ({ check: vi.fn() }));
 vi.mock("@tauri-apps/plugin-updater", () => updater);
 
+const dialog = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => dialog);
+
 const processPlugin = vi.hoisted(() => ({ relaunch: vi.fn() }));
 vi.mock("@tauri-apps/plugin-process", () => processPlugin);
 
@@ -187,6 +190,8 @@ async function mount(config?: {
   autostart.isEnabled.mockResolvedValue(false);
   updater.check.mockReset();
   updater.check.mockResolvedValue(null);
+  dialog.open.mockReset();
+  dialog.open.mockResolvedValue(null);
   processPlugin.relaunch.mockReset();
   processPlugin.relaunch.mockResolvedValue(undefined);
   appApi.getVersion.mockReset();
@@ -792,6 +797,8 @@ describe("actions panel", () => {
         { name: "Code", kind: "app", value: "" },
         { name: "Google", kind: "url", value: "https://google.com" },
         { name: "Echo", kind: "command", value: "echo hi" },
+        { name: "Notes", kind: "file", value: "/tmp/notes.txt" },
+        { name: "Projects", kind: "folder", value: "/tmp/Projects" },
       ],
     });
     await openOverlay();
@@ -804,21 +811,47 @@ describe("actions panel", () => {
         cls: el.className,
         hidden: (el as HTMLElement).hidden,
       }));
+    // URL and command rows: no browse visible.
     expect(rowOrder(rows[1])).toEqual([
       { cls: "s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: true },
+      { cls: "s-file-browse", hidden: true },
+      { cls: "s-folder-browse", hidden: true },
       { cls: "s-group-field", hidden: false },
       { cls: "s-del", hidden: false },
     ]);
     expect(rowOrder(rows[2])).toEqual([
       { cls: "s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: true },
+      { cls: "s-file-browse", hidden: true },
+      { cls: "s-folder-browse", hidden: true },
       { cls: "s-group-field", hidden: false },
       { cls: "s-del", hidden: false },
     ]);
+    // App row: the app picker only.
     expect(rowOrder(rows[0])).toEqual([
       { cls: "s-value-field", hidden: false },
       { cls: "s-app-browse", hidden: false },
+      { cls: "s-file-browse", hidden: true },
+      { cls: "s-folder-browse", hidden: true },
+      { cls: "s-group-field", hidden: false },
+      { cls: "s-del", hidden: false },
+    ]);
+    // File row: the native file dialog only.
+    expect(rowOrder(rows[3])).toEqual([
+      { cls: "s-value-field", hidden: false },
+      { cls: "s-app-browse", hidden: true },
+      { cls: "s-file-browse", hidden: false },
+      { cls: "s-folder-browse", hidden: true },
+      { cls: "s-group-field", hidden: false },
+      { cls: "s-del", hidden: false },
+    ]);
+    // Folder row: the native folder dialog only.
+    expect(rowOrder(rows[4])).toEqual([
+      { cls: "s-value-field", hidden: false },
+      { cls: "s-app-browse", hidden: true },
+      { cls: "s-file-browse", hidden: true },
+      { cls: "s-folder-browse", hidden: false },
       { cls: "s-group-field", hidden: false },
       { cls: "s-del", hidden: false },
     ]);
@@ -839,7 +872,7 @@ describe("actions panel", () => {
     });
     await openOverlay();
     openActions();
-    const url = document.querySelector<HTMLInputElement>('input.s-kind[value="url"]')!;
+    const url = document.querySelector<HTMLButtonElement>('.s-kind-option[data-value="url"]')!;
     const browse = document.querySelector<HTMLButtonElement>(".s-app-browse")!;
     expect(browse.hidden).toBe(false);
     url.click();
@@ -849,6 +882,191 @@ describe("actions panel", () => {
         .querySelector<HTMLElement>(".s-group-field")!
         .lastElementChild!.classList.contains("s-group-picker"),
     ).toBe(true);
+  });
+
+  it("opens the action kind list upward when there is not enough room below", async () => {
+    await openOverlay();
+    openActions();
+    const trigger = document.querySelector<HTMLButtonElement>(".s-kind-trigger")!;
+    const listbox = document.querySelector<HTMLElement>(".s-kind-listbox")!;
+    const rows = document.querySelector<HTMLElement>("#actions-rows")!;
+    const triggerRect = vi
+      .spyOn(trigger, "getBoundingClientRect")
+      .mockReturnValue({ top: 420, bottom: 460 } as DOMRect);
+    vi.spyOn(rows, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 500 } as DOMRect);
+    Object.defineProperty(listbox, "offsetHeight", { configurable: true, value: 160 });
+
+    trigger.click();
+    expect(listbox.classList.contains("open-up")).toBe(true);
+
+    trigger.click();
+    triggerRect.mockReturnValue({ top: 160, bottom: 200 } as DOMRect);
+    trigger.click();
+    expect(listbox.classList.contains("open-up")).toBe(false);
+  });
+
+  it("toggles the action kind list closed when its button is clicked again", async () => {
+    await openOverlay();
+    openActions();
+    const trigger = document.querySelector<HTMLButtonElement>(".s-kind-trigger")!;
+    const listbox = document.querySelector<HTMLElement>(".s-kind-listbox")!;
+
+    trigger.click();
+    expect(listbox.hidden).toBe(false);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    trigger.click();
+    expect(listbox.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("a real click on the open kind button closes the list instead of reopening it", async () => {
+    await openOverlay();
+    openActions();
+    const trigger = document.querySelector<HTMLButtonElement>(".s-kind-trigger")!;
+    const listbox = document.querySelector<HTMLElement>(".s-kind-listbox")!;
+
+    trigger.click();
+    expect(listbox.hidden).toBe(false);
+
+    // In a real browser, mousedown moves focus from the listbox to the
+    // button, firing `focusout` on the listbox *before* the click event.
+    // WebKit and Firefox report `relatedTarget: null` for that move, so a
+    // focusout-based dismissal would close the listbox and the following
+    // click would reopen it — the button could then never close the list.
+    listbox.focus();
+    listbox.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    trigger.click();
+    expect(listbox.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("scrolls the actions editor when neither side initially has enough room", async () => {
+    await openOverlay();
+    openActions();
+    const trigger = document.querySelector<HTMLButtonElement>(".s-kind-trigger")!;
+    const listbox = document.querySelector<HTMLElement>(".s-kind-listbox")!;
+    const rows = document.querySelector<HTMLElement>("#actions-rows")!;
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({ top: 120, bottom: 160 } as DOMRect);
+    vi.spyOn(rows, "getBoundingClientRect").mockReturnValue({ top: 100, bottom: 240 } as DOMRect);
+    Object.defineProperty(listbox, "offsetHeight", { configurable: true, value: 160 });
+
+    trigger.click();
+    expect(rows.scrollTop).toBeGreaterThan(0);
+    expect(listbox.classList.contains("open-up")).toBe(false);
+  });
+
+  it("a file-kind action shows only the file picker", async () => {
+    await mount({ actions: [{ name: "Notes", kind: "file", value: "/tmp/notes.txt" }] });
+    await openOverlay();
+    openActions();
+    const browse = document.querySelector<HTMLButtonElement>(".s-app-browse")!;
+    const fileBrowse = document.querySelector<HTMLButtonElement>(".s-file-browse")!;
+    const folderBrowse = document.querySelector<HTMLButtonElement>(".s-folder-browse")!;
+    expect(browse.hidden).toBe(true);
+    expect(fileBrowse.hidden).toBe(false);
+    expect(folderBrowse.hidden).toBe(true);
+    expect(fileBrowse.getAttribute("aria-label")).toBe("Browse files\u2026");
+    expect(folderBrowse.getAttribute("aria-label")).toBe("Browse folders\u2026");
+    expect(document.querySelector<HTMLInputElement>(".s-value")!.placeholder).toBe(
+      "file path",
+    );
+  });
+
+  it("a folder-kind action shows only the folder picker", async () => {
+    await mount({ actions: [{ name: "Projects", kind: "folder", value: "" }] });
+    await openOverlay();
+    openActions();
+    expect(document.querySelector<HTMLButtonElement>(".s-file-browse")!.hidden).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>(".s-folder-browse")!.hidden).toBe(false);
+    expect(document.querySelector<HTMLInputElement>(".s-value")!.placeholder).toBe("folder path");
+  });
+
+  it("switching a row to file reveals the file picker and hides the app picker", async () => {
+    await mount({ actions: [{ name: "Code", kind: "app", value: "/Applications/Code.app" }] });
+    await openOverlay();
+    openActions();
+    const file = document.querySelector<HTMLButtonElement>('.s-kind-option[data-value="file"]')!;
+    const browse = document.querySelector<HTMLButtonElement>(".s-app-browse")!;
+    const fileBrowse = document.querySelector<HTMLButtonElement>(".s-file-browse")!;
+    expect(browse.hidden).toBe(false);
+    expect(fileBrowse.hidden).toBe(true);
+    file.click();
+    expect(browse.hidden).toBe(true);
+    expect(fileBrowse.hidden).toBe(false);
+    expect(document.querySelector<HTMLInputElement>(".s-value")!.placeholder).toBe(
+      "file path",
+    );
+  });
+
+  it("picking a file fills the value and suggests the name from the basename", async () => {
+    await mount({ actions: [{ name: "", kind: "file", value: "" }] });
+    await openOverlay();
+    openActions();
+    dialog.open.mockResolvedValue("/Users/me/Downloads/notes.txt");
+    document.querySelector<HTMLButtonElement>(".s-file-browse")!.click();
+    await flush();
+    expect(dialog.open).toHaveBeenCalledWith(
+      expect.objectContaining({ directory: false, multiple: false }),
+    );
+    expect(document.querySelector<HTMLInputElement>(".s-value")!.value).toBe(
+      "/Users/me/Downloads/notes.txt",
+    );
+    expect(document.querySelector<HTMLInputElement>(".s-name")!.value).toBe("notes.txt");
+  });
+
+  it("picking a folder fills the value and keeps a set name", async () => {
+    await mount({ actions: [{ name: "Projects", kind: "folder", value: "" }] });
+    await openOverlay();
+    openActions();
+    dialog.open.mockResolvedValue("C:\\Users\\me\\Projects");
+    document.querySelector<HTMLButtonElement>(".s-folder-browse")!.click();
+    await flush();
+    expect(dialog.open).toHaveBeenCalledWith(expect.objectContaining({ directory: true }));
+    expect(document.querySelector<HTMLInputElement>(".s-value")!.value).toBe(
+      "C:\\Users\\me\\Projects",
+    );
+    expect(document.querySelector<HTMLInputElement>(".s-name")!.value).toBe("Projects");
+  });
+
+  it("a cancelled dialog leaves the row untouched", async () => {
+    await mount({ actions: [{ name: "Notes", kind: "file", value: "" }] });
+    await openOverlay();
+    openActions();
+    dialog.open.mockResolvedValue(null);
+    document.querySelector<HTMLButtonElement>(".s-file-browse")!.click();
+    await flush();
+    expect(document.querySelector<HTMLInputElement>(".s-value")!.value).toBe("");
+    expect(document.querySelector<HTMLInputElement>(".s-name")!.value).toBe("Notes");
+  });
+
+  it("saves a folder-kind action unchanged", async () => {
+    await mount({ actions: [{ name: "Projects", kind: "folder", value: "/tmp/Projects" }] });
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({
+        actions: [{ name: "Projects", kind: "folder", value: "/tmp/Projects" }],
+      }),
+    );
+  });
+
+  it("saves a file-kind action unchanged", async () => {
+    await mount({ actions: [{ name: "Notes", kind: "file", value: "/tmp/notes.txt" }] });
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({
+        actions: [{ name: "Notes", kind: "file", value: "/tmp/notes.txt" }],
+      }),
+    );
   });
 
   it("round-trips a config-set browser override without showing it", async () => {
@@ -975,7 +1193,7 @@ describe("groups", () => {
     expect(names).toEqual(["Work", "Dev"]);
     expect(document.querySelector(".g-name-label")!.textContent).toBe("Name");
     expect(document.querySelector(".g-color-label")!.textContent).toBe("Color");
-    expect(document.querySelector(".s-kind-group")!.getAttribute("aria-label")).toBe("Type");
+    expect(document.querySelector(".s-kind-listbox")!.getAttribute("aria-label")).toBe("Type");
     const trigger = document.querySelector<HTMLElement>(".s-group-trigger")!;
     expect(trigger.dataset.value).toBe("work");
     const listbox = document.querySelector<HTMLElement>(".s-group-picker")!;

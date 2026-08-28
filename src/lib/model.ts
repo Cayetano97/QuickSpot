@@ -1,6 +1,6 @@
 import { MAX_QUERY_BYTES, MAX_VISIBLE } from "./constants";
 
-export type ActionKind = "url" | "command" | "app";
+export type ActionKind = "url" | "command" | "app" | "file" | "folder";
 
 export interface Action {
   name: string;

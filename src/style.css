@@ -164,6 +164,8 @@ button {
 .settings-row .s-group-trigger:focus-visible,
 .settings-row .s-order-controls button:focus-visible,
 .settings-row .s-app-browse:focus-visible,
+.settings-row .s-file-browse:focus-visible,
+.settings-row .s-folder-browse:focus-visible,
 .settings-row .s-del:focus-visible,
 .app-picker .ap-search:focus-visible,
 .app-picker .ap-item:focus-visible,
@@ -1018,24 +1020,172 @@ label.settings-list-row {
   gap: 0;
 }
 
-/* One action card. Two content lines (name+type / value+group) with a
-   slim rail of per-row actions (reorder, delete) on the right. */
+/* One action card. At rest it shows only the action's kind icon (plus its
+   group color chip); hovering or focusing the card unfolds the full editor
+   with a smooth container-transform: the icon face collapses away while the
+   form expands in its place. Motion is asymmetric — slower and decelerating
+   on the way open (260ms, expo-out), quicker on the way closed (180ms,
+   standard-out) — so the card feels eager to reveal and tidy to dismiss
+   (Material M3 emphasized easing; NN/g timing guidance).
+
+   The height animation uses `grid-template-rows: 0fr -> 1fr`, which animates
+   to the content's real height (Chrome/Edge 107+, Safari 16+, Firefox 66+;
+   older engines just snap open/close — a graceful degradation). A clip
+   wrapper hides overflow during the motion, and `visibility` (delayed on
+   collapse, instant on expand) keeps the hidden fields out of the tab order. */
 .settings-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 10px;
-  row-gap: 8px;
-  padding: 12px 12px 12px 14px;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--ghost-border);
   border-radius: 14px;
   background: var(--chip-fill);
   transition: border-color 140ms ease-out, background 140ms ease-out;
 }
 
+/* The action editor stays open at all times. The kind selector is the only
+   control that folds down to the selected icon until hovered or focused. */
+.settings-row .s-face {
+  display: none;
+}
+
+/* Collapsed face kept in the DOM for accessibility/fallback, but not used
+   while the action editor is permanently expanded. */
+.settings-row .s-face-old {
+  flex: 0 0 auto;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  transition: height 180ms var(--ease-standard), opacity 120ms ease,
+    visibility 0s linear 180ms;
+}
+
+.settings-row .s-face-icon {
+  display: flex;
+  transition: transform 180ms var(--ease-standard), color 140ms ease-out;
+}
+
+.settings-row .s-face-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.settings-row .s-face-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 4px;
+  background: var(--ghost-fill);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+/* The unfolding editor: the clip collapses to 0fr, the content fades and
+   rises 6px so the form settles into place instead of just appearing. */
+.settings-row .s-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: none;
+}
+
+.settings-row .s-body-clip {
+  overflow: visible;
+  min-height: 0;
+  visibility: visible;
+  transition: none;
+}
+
+.settings-row .s-body-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 8px;
+  padding: 12px 12px 12px 14px;
+  opacity: 1;
+  transform: none;
+  transition: none;
+}
+
+/* Expanded state (keyboard focus, a failed save, or a JS-pinned card — the
+   panel opens with row one pinned and caret-ready): same choreography, open
+   timings. `visibility` flips instantly so fields are immediately usable. */
+.settings-row:is(:focus-within, .invalid, .pin) .s-body {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 260ms var(--ease-out);
+}
+
+.settings-row:is(:focus-within, .invalid, .pin) .s-body-clip {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.settings-row:is(:focus-within, .invalid, .pin) .s-body-grid {
+  opacity: 1;
+  transform: none;
+  transition: opacity 160ms ease 60ms, transform 260ms var(--ease-out);
+}
+
+.settings-row:is(:focus-within, .invalid, .pin) .s-face {
+  height: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: height 260ms var(--ease-out), opacity 140ms ease, visibility 0s;
+}
+
+.settings-row:is(:focus-within, .invalid, .pin) .s-face-icon {
+  color: var(--accent);
+}
+
+.settings-row.invalid .s-face-icon {
+  color: #d98a8a;
+}
+
+.settings-row .s-face:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -5px;
+  border-radius: 10px;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .settings-row:hover {
     border-color: #9a9a9e;
     background: #303032;
+  }
+
+  /* Hover mirrors the focus-within choreography above. */
+  .settings-row:hover .s-body {
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 260ms var(--ease-out);
+  }
+
+  .settings-row:hover .s-body-clip {
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  .settings-row:hover .s-body-grid {
+    opacity: 1;
+    transform: none;
+    transition: opacity 160ms ease 60ms, transform 260ms var(--ease-out);
+  }
+
+  .settings-row:hover .s-face {
+    height: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: height 260ms var(--ease-out), opacity 140ms ease, visibility 0s;
+  }
+
+  .settings-row:hover .s-face-icon {
+    color: var(--accent);
+    transform: scale(1.08);
   }
 }
 
@@ -1161,30 +1311,161 @@ label.settings-list-row {
   min-width: 0;
 }
 
-/* Segmented radio group for the action type (URL / Command / App). */
-.settings-row .s-kind-group {
+/* Action type picker: a compact trigger with a floating listbox, matching
+   the group picker used elsewhere in this editor. */
+.settings-row .s-kind-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.settings-row .s-kind-trigger {
+  width: var(--editor-icon-size);
+  height: var(--editor-icon-size);
+  padding: 0;
+  border: 1px solid var(--ghost-border);
+  border-radius: 10px;
+  color: var(--accent);
+  background: var(--field-fill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-row .s-kind-trigger-icon,
+.settings-row .s-kind-option-icon {
+  display: inline-flex;
+}
+
+.settings-row .s-kind-trigger-icon svg,
+.settings-row .s-kind-option-icon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.settings-row .s-kind-listbox {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 160px;
+  max-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--ghost-border);
+  border-radius: 12px;
+  background: #18181b;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+  outline: none;
+}
+
+.settings-row .s-kind-option {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--accent);
+  text-align: left;
+  font-size: 13px;
+}
+
+.settings-row .s-kind-option[aria-selected="true"],
+.settings-row .s-kind-option:hover,
+.settings-row .s-kind-option.active {
+  color: var(--accent);
+  background: var(--ghost-fill-active);
+}
+
+.settings-row .s-kind-option-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.settings-row .s-kind-listbox.open-up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.settings-row .s-kind-listbox[hidden] {
+  display: none;
+}
+
+.settings-row .s-kind-group-old {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
   padding: 3px;
   border: 1px solid var(--ghost-border);
   border-radius: 11px;
   background: #262628;
-  transition: border-color var(--duration-fast) ease;
+  transition: width 180ms var(--ease-standard), border-color var(--duration-fast) ease;
 }
 
+.settings-row .s-kind-group.expanded,
+.settings-row .s-kind-group:hover,
 .settings-row .s-kind-group:focus-within {
+  width: 168px;
+}
+
+.settings-row .s-kind-group:not(.expanded):not(:hover):not(:focus-within) .s-kind-opt:not(.on) {
+  display: none;
+}
+
+.settings-row .s-kind-group:not(.expanded):not(:hover):not(:focus-within) .s-kind-opt.on {
+  flex: 0 0 26px;
+  min-height: 26px;
+  padding: 0;
+  justify-content: center;
+}
+
+.settings-row .s-kind-group:hover .s-kind-opt,
+.settings-row .s-kind-group:focus-within .s-kind-opt,
+.settings-row .s-kind-group.expanded .s-kind-opt {
+  display: flex;
+}
+
+.settings-row .s-kind-text {
+  display: none;
+}
+
+/* When the pointer rests on an option, reveal only that option's label;
+   the remaining choices stay icon-only. */
+.settings-row .s-kind-group:hover .s-kind-opt:hover .s-kind-text,
+.settings-row .s-kind-group:focus-within .s-kind-opt:focus-within .s-kind-text,
+.settings-row .s-kind-group.expanded .s-kind-opt:hover .s-kind-text {
+  display: inline;
+}
+
+.settings-row .s-kind-group:hover,
+.settings-row .s-kind-group:focus-within {
+  width: 168px;
   border-color: var(--accent);
 }
 
-.settings-row .s-kind-opt {
+.settings-row .s-kind-opt-old {
   position: relative;
   display: flex;
   align-items: center;
   gap: 5px;
   min-height: 32px;
-  padding: 0 10px 0 8px;
+  white-space: nowrap;
+  padding: 0 9px;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 500;
@@ -1193,13 +1474,13 @@ label.settings-list-row {
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
 }
 
-.settings-row .s-kind-opt.on {
+.settings-row .s-kind-opt-old.on {
   color: var(--accent);
   background: var(--ghost-fill-active);
   box-shadow: inset 0 0 0 1px rgba(229, 229, 229, 0.16);
 }
 
-.settings-row .s-kind-opt input {
+.settings-row .s-kind-opt-old input {
   position: absolute;
   inset: 0;
   margin: 0;
@@ -1222,7 +1503,7 @@ label.settings-list-row {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .settings-row .s-kind-opt:not(.on):hover {
+  .settings-row .s-kind-opt-old:not(.on):hover {
     color: var(--accent);
     background: var(--ghost-fill);
   }
@@ -1237,8 +1518,32 @@ label.settings-list-row {
   border-color: #943d3d;
 }
 
-/* Browse apps: a compact icon button next to the value field. */
-.settings-row .s-app-browse {
+/* The group popover floats outside the card geometry; while it is open the
+   card is fully expanded, so lifting the clip lets it escape the foldable
+   body without anything else spilling out. */
+.settings-row .s-body-clip:has(.s-group-picker:not([hidden])) {
+  overflow: visible;
+}
+
+/* Reduced motion: keep the expand/collapse behavior (it is how the editor
+   is reached at all) but drop the animation — states snap, no translation. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-row .s-face,
+  .settings-row .s-face-icon,
+  .settings-row .s-body,
+  .settings-row .s-body-clip,
+  .settings-row .s-body-grid {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* Browse buttons next to the value field: apps (custom picker), files and
+   folders (native dialogs). One compact icon button per target; only the
+   kind's own button is visible. */
+.settings-row .s-app-browse,
+.settings-row .s-file-browse,
+.settings-row .s-folder-browse {
   flex: 0 0 var(--editor-icon-size);
   width: var(--editor-icon-size);
   height: var(--editor-icon-size);
@@ -1253,7 +1558,9 @@ label.settings-list-row {
     transform var(--duration-fast) var(--ease-out);
 }
 
-.settings-row .s-app-browse svg {
+.settings-row .s-app-browse svg,
+.settings-row .s-file-browse svg,
+.settings-row .s-folder-browse svg {
   width: 16px;
   height: 16px;
   fill: none;
@@ -1264,17 +1571,23 @@ label.settings-list-row {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .settings-row .s-app-browse:hover {
+  .settings-row .s-app-browse:hover,
+  .settings-row .s-file-browse:hover,
+  .settings-row .s-folder-browse:hover {
     color: var(--accent);
     background: var(--ghost-fill-active);
   }
 }
 
-.settings-row .s-app-browse:active {
+.settings-row .s-app-browse:active,
+.settings-row .s-file-browse:active,
+.settings-row .s-folder-browse:active {
   transform: scale(0.96);
 }
 
-.settings-row .s-app-browse[hidden] {
+.settings-row .s-app-browse[hidden],
+.settings-row .s-file-browse[hidden],
+.settings-row .s-folder-browse[hidden] {
   display: none;
 }
 
@@ -2094,8 +2407,10 @@ label.settings-list-row {
   .settings-list-row,
   .settings-row,
   .settings-row .s-app-browse,
+  .settings-row .s-file-browse,
+  .settings-row .s-folder-browse,
   .settings-row .s-del,
-  .settings-row .s-kind-opt,
+  .settings-row .s-kind-opt-old,
   .settings-row .s-group-trigger,
   .settings-groups,
   .settings-groups .g-add,
@@ -2126,7 +2441,7 @@ label.settings-list-row {
   .settings-list,
   .settings-row,
   .settings-row input[type="text"],
-  .settings-row .s-kind-group,
+  .settings-row .s-kind-group-old,
   .settings-row .s-group-trigger,
   .settings-row .s-group-picker,
   .settings-groups,

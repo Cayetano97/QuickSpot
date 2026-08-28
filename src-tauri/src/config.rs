@@ -13,6 +13,10 @@ pub enum ActionKind {
     Url,
     Command,
     App,
+    /// Open a file with its OS default handler.
+    File,
+    /// Open a folder with the OS file manager.
+    Folder,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -153,6 +157,8 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
             Some("url") => ActionKind::Url,
             Some("command") => ActionKind::Command,
             Some("app") => ActionKind::App,
+            Some("file") => ActionKind::File,
+            Some("folder") => ActionKind::Folder,
             _ => continue,
         };
         out.push(Action {
@@ -368,6 +374,45 @@ mod tests {
         }"#;
         let actions = parse_config(text).unwrap().actions;
         assert_eq!(actions[0].hint.as_deref(), Some("github"));
+    }
+
+    #[test]
+    fn file_kind_is_parsed_for_files_and_folders() {
+        let text = r#"{
+            "actions": [
+                { "name": "Notes", "kind": "file", "value": "/tmp/notes.txt" },
+                { "name": "Projects", "kind": "folder", "value": "/Users/me/Projects" }
+            ]
+        }"#;
+        let actions = parse_config(text).unwrap().actions;
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].kind, ActionKind::File);
+        assert_eq!(actions[0].value, "/tmp/notes.txt");
+        assert_eq!(actions[1].kind, ActionKind::Folder);
+        assert_eq!(actions[1].value, "/Users/me/Projects");
+    }
+
+    #[test]
+    fn file_actions_round_trip_through_save_and_load() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("quickspot-save-file-{}.json", std::process::id()));
+        let original = Config {
+            actions: vec![Action {
+                name: "Downloads".into(),
+                kind: ActionKind::File,
+                value: "/home/me/Downloads".into(),
+                browser: None,
+                hint: None,
+                group: None,
+            }],
+            groups: Vec::new(),
+            language: None,
+            magnify: true,
+            show_icons: true,
+        };
+        save_to(&path, &original).unwrap();
+        assert_eq!(load_from(&path), original);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
