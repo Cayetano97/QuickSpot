@@ -154,7 +154,7 @@ To add a language:
 
 QuickSpot self-updates from GitHub Releases. When a new release is
 published, a subtle blue pill appears at the bottom of the overlay
-(`Update to v0.3.0`); clicking it downloads the new version, installs it
+(`Update to v0.4.0`); clicking it downloads the new version, installs it
 and relaunches into it.
 
 ## License
