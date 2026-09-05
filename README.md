@@ -50,7 +50,7 @@ Inside the overlay:
 
 - **Global hotkey** — open from anywhere: `Alt+Space`, `Option+Space`, `Super+Space`
 - **Drag to move** — grab the top pill; it never gets lost off-screen
-- **5 action kinds** — `url`, `command`, `app`, `file`, or `folder`
+- **6 action kinds** — `url`, `command`, `app`, `file`, `folder`, or `sequence` (run up to 5 steps in order)
 - **Unlimited actions** — add as many as you want; shows the first 8 matches
 - **Reorder** — Up/Down buttons in the panel; order also sets search ranking
 - **Colored groups** — group actions and give each group a color
@@ -83,8 +83,9 @@ QuickSpot reads `quickspot.config.json` from the per-user config directory
 `quickspot.config.json` next to the binary is migrated automatically. If
 the file is missing or malformed, it falls back to built-in defaults. There
 is no limit on the number of actions; the overlay shows the first 8 matches
-of the current query. Items missing `name`, `kind`, or `value` (or with an
-unknown `kind`) are skipped.
+of the current query. Items missing `name`/`kind` (or `value` for
+non-sequence kinds, `steps` for sequences) or with an unknown `kind` are
+skipped.
 
 ```json
 {
@@ -94,7 +95,15 @@ unknown `kind`) are skipped.
   "actions": [
     { "name": "QuickSpot", "kind": "url", "value": "https://github.com/Cayetano97/QuickSpot" },
     { "name": "YouTube", "kind": "url", "value": "https://youtube.com" },
-    { "name": "Slack", "kind": "url", "value": "https://slack.com", "group": "work" }
+    { "name": "Slack", "kind": "url", "value": "https://slack.com", "group": "work" },
+    {
+      "name": "Morning",
+      "kind": "sequence",
+      "steps": [
+        { "kind": "folder", "value": "/Users/me/Projects" },
+        { "kind": "url", "value": "https://example.com" }
+      ]
+    }
   ]
 }
 ```
@@ -102,8 +111,9 @@ unknown `kind`) are skipped.
 | Field | Description |
 | --- | --- |
 | `name` | Display label; matched case-insensitively by the filter |
-| `kind` | `"url"`, `"command"`, `"app"`, `"file"`, or `"folder"` |
-| `value` | URL, shell command, app path / bundle id, file path, or folder path |
+| `kind` | `"url"`, `"command"`, `"app"`, `"file"`, `"folder"`, or `"sequence"` |
+| `value` | URL, shell command, app path / bundle id, file path, or folder path. Unused for `sequence` (always `""`) |
+| `steps` | For `sequence` only: 1–5 leaf steps `{ kind, value, browser? }` where `kind` is `url`/`command`/`app`/`file`/`folder` (never nested). Extra steps are truncated, blank/nested steps dropped; a sequence with no runnable steps is skipped. Steps run in order, without delay, best-effort (a failing step never stops the rest) and the overlay always closes |
 | `browser` | Optional: custom browser executable for URLs. Set in the config file (not edited in the actions panel; a value there is preserved on save) |
 | `hint` | Optional: reserved for future use |
 | `group` | Optional: id of the group this action belongs to |
@@ -113,6 +123,9 @@ unknown `kind`) are skipped.
 A `file` action opens its `value` with the OS default handler. A `folder`
 action opens its `value` in the OS file manager. The actions panel offers a
 separate native file picker for `file` and folder picker for `folder`.
+A `sequence` fans out to its steps in order (e.g. open a folder, then a URL);
+pick `Sequence` as the type and add up to 5 steps, each with its own type and
+value (same pickers as single actions, no nested sequences).
 
 ## Testing
 

@@ -44,10 +44,14 @@ import {
   filterActions,
   isHexColor,
   isReadableOnDark,
+  MAX_SEQUENCE_STEPS,
   moveSelection,
+  SEQUENCE_STEP_KINDS,
   uniqueGroupId,
   type Action,
   type Group,
+  type SequenceStep,
+  type SequenceStepKind,
 } from "./lib/model";
 import { OverlayState } from "./lib/state";
 
@@ -297,7 +301,12 @@ function syncUiScale(): void {
 }
 
 syncUiScale();
-window.addEventListener("resize", syncUiScale);
+window.addEventListener("resize", () => {
+  syncUiScale();
+  // A resize moves every anchor: repositioning could flicker, so dismiss like
+  // a background scroll (same Material/Apple rule).
+  if (typeof dismissFloatingPickers === "function") dismissFloatingPickers();
+});
 
 const chips: HTMLButtonElement[] = [];
 const chipLabels: HTMLElement[] = [];
@@ -310,6 +319,8 @@ const KIND_ICONS: Record<Action["kind"], string> = {
   app: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>',
   file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
   folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
+  sequence:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>',
 };
 
 const KIND_LABEL_KEYS: Record<Action["kind"], DictKey> = {
@@ -318,6 +329,7 @@ const KIND_LABEL_KEYS: Record<Action["kind"], DictKey> = {
   app: "kindApp",
   file: "kindFile",
   folder: "kindFolder",
+  sequence: "kindSequence",
 };
 
 for (let i = 0; i < MAX_VISIBLE; i++) {
@@ -776,6 +788,42 @@ actionsRows.addEventListener("click", (e) => {
   closeGroupSelects();
   closeKindPickers();
 });
+
+// Scrolling the editor dismisses floating pickers (Apple HIG popovers dismiss
+// on outside interaction; Material M3 menus close on background scroll). The
+// in-flow app picker is excluded: it expands the card instead of overlaying,
+// so scrolling with it open is natural. Internal scrolled (the picker's own
+// option list) must not dismiss: those scrolls target the picker itself and
+// never reach this scrollport as a `scroll` on actionsRows (scroll doesn't
+// bubble), while wheel/touch gestures over the open menu are let through by
+// checking `closest` below.
+actionsRows.addEventListener(
+  "wheel",
+  (e) => {
+    if ((e.target as HTMLElement).closest?.(".s-kind-listbox, .s-group-picker, .g-picker")) return;
+    dismissFloatingPickers();
+  },
+  { passive: true },
+);
+actionsRows.addEventListener(
+  "touchmove",
+  (e) => {
+    if ((e.target as HTMLElement).closest?.(".s-kind-listbox, .s-group-picker, .g-picker")) return;
+    dismissFloatingPickers();
+  },
+  { passive: true },
+);
+actionsRows.addEventListener(
+  "scroll",
+  () => {
+    // The open itself scrolls programmatically (scrollIntoView + room-making
+    // inside `positionActionsPopover`); that races within ms of
+    // `lastPopoverOpenAt` and must not instantly dismiss.
+    if (Date.now() - lastPopoverOpenAt < 150) return;
+    dismissFloatingPickers();
+  },
+  { passive: true },
+);
 
 settingsPanel.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -1644,6 +1692,7 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
       closeGroupPickers(picker);
       picker.hidden = false;
       swatch.setAttribute("aria-expanded", "true");
+      lastPopoverOpenAt = Date.now();
       refreshGp();
       const match = gpItems.findIndex(
         (it) => it.dataset.color === hex.value.trim().toLowerCase(),
@@ -1707,6 +1756,11 @@ function collectGroupsFromRows(): Group[] {
 
 const ACTIONS_POPOVER_GAP = 6;
 
+/** Last time any floating picker was opened; scrolls racing the open's own
+ * programmatic scroll-into-view are ignored for ~150ms. Wheel/touch need no
+ * separate guard: programmatic scrolls emit neither event. */
+let lastPopoverOpenAt = 0;
+
 /**
  * Keep an actions-editor popover inside the visible scroll viewport. A simple
  * up/down flip is not enough: a popover belonging to the first visible row
@@ -1715,6 +1769,9 @@ const ACTIONS_POPOVER_GAP = 6;
  * only as a last resort for unusually small windows.
  */
 function positionActionsPopover(trigger: HTMLElement, popup: HTMLElement): void {
+  // Mark the open race: the scrolls below are ours, and the actionsRows
+  // `scroll` listener lets through anything within ~150ms of this stamp.
+  lastPopoverOpenAt = Date.now();
   // A previous open may have applied a viewport-specific max-height. Remove
   // it before measuring so a later open can grow again after the editor moves.
   popup.style.removeProperty("max-height");
@@ -2062,9 +2119,49 @@ function closeKindPickers(except?: HTMLElement): void {
   }
 }
 
+/** Dismiss every floating picker in the actions editor, returning focus to
+ * its trigger without scrolling (the user just scrolled on purpose).
+ * Covers the kind listboxes (parent rows + sequence steps), the group
+ * selects and the group color popovers. The in-flow app picker is excluded:
+ * it expands the card rather than overlaying, so it scrolls naturally. */
+function dismissFloatingPickers(): void {
+  for (const listbox of actionsRows.querySelectorAll<HTMLElement>(".s-kind-listbox")) {
+    if (listbox.hidden) continue;
+    listbox.hidden = true;
+    const trigger = listbox.parentElement?.querySelector<HTMLElement>(".s-kind-trigger");
+    trigger?.setAttribute("aria-expanded", "false");
+    if (trigger && listbox.contains(document.activeElement)) {
+      trigger.focus({ preventScroll: true });
+    }
+  }
+  for (const popup of actionsRows.querySelectorAll<HTMLElement>(".s-group-picker")) {
+    if (popup.hidden) continue;
+    popup.hidden = true;
+    const trigger = popup.parentElement?.querySelector<HTMLElement>(".s-group-trigger");
+    trigger?.setAttribute("aria-expanded", "false");
+    if (trigger && popup.contains(document.activeElement)) {
+      trigger.focus({ preventScroll: true });
+    }
+  }
+  for (const picker of actionsRows.querySelectorAll<HTMLElement>(".g-picker")) {
+    if (picker.hidden) continue;
+    picker.hidden = true;
+    const swatch = picker.parentElement?.querySelector<HTMLButtonElement>(".g-swatch");
+    swatch?.setAttribute("aria-expanded", "false");
+    if (swatch && picker.contains(document.activeElement)) {
+      swatch.focus({ preventScroll: true });
+    }
+  }
+}
+
 /** Type picker matching the group picker: one trigger and an accessible
- * listbox popover with mouse and keyboard selection. */
-function buildKindPicker(kind: Action["kind"]): HTMLElement {
+ * listbox popover with mouse and keyboard selection. Parent rows allow the
+ * `sequence` kind; sequence steps are leaves only (no nesting). */
+function buildKindPicker(
+  kind: Action["kind"] | SequenceStepKind,
+  opts?: { allowSequence?: boolean },
+): HTMLElement {
+  const allowSequence = opts?.allowSequence ?? true;
   const picker = document.createElement("div");
   picker.className = "s-kind-picker";
   const listId = `ksel-${++kindPickerSeq}`;
@@ -2086,7 +2183,9 @@ function buildKindPicker(kind: Action["kind"]): HTMLElement {
   listbox.tabIndex = -1;
   listbox.setAttribute("role", "listbox");
   listbox.setAttribute("aria-label", t(currentLanguage, "actionTypeLabel"));
-  const kinds = ["url", "command", "app", "file", "folder"] as const;
+  const kinds: readonly (Action["kind"] | SequenceStepKind)[] = allowSequence
+    ? (["url", "command", "app", "file", "folder", "sequence"] as const)
+    : (SEQUENCE_STEP_KINDS as readonly SequenceStepKind[]);
   let options: HTMLButtonElement[] = [];
   let active = 0;
 
@@ -2190,6 +2289,216 @@ function buildKindPicker(kind: Action["kind"]): HTMLElement {
   return picker;
 }
 
+// ------------------------------------------------------- sequence steps
+// A sequence fans out to 1..MAX_SEQUENCE_STEPS leaf actions (url/command/
+// app/file/folder, never nested). Each step is its own mini-row reusing the
+// editor's tokens: 34px kind trigger, field-fill value, 34px browse/delete.
+// The parent's own value line is hidden while `kind-sequence` is active.
+
+function sequenceStepsOf(row: HTMLElement): HTMLElement[] {
+  return [...row.querySelectorAll<HTMLElement>(".s-step")];
+}
+
+function syncSequenceCount(row: HTMLElement): void {
+  const list = row.querySelector<HTMLElement>(".s-steps-list");
+  const countEl = row.querySelector<HTMLElement>(".s-steps-count");
+  const add = row.querySelector<HTMLButtonElement>(".s-steps-add");
+  if (!list || !countEl) return;
+  const n = sequenceStepsOf(row).length;
+  countEl.textContent = t(currentLanguage, "sequenceStepsCount", { count: String(n) });
+  countEl.setAttribute(
+    "aria-label",
+    t(currentLanguage, "sequenceStepsCount", { count: String(n) }),
+  );
+  if (add) {
+    add.disabled = n >= MAX_SEQUENCE_STEPS;
+    add.setAttribute("aria-disabled", String(n >= MAX_SEQUENCE_STEPS));
+  }
+  // Number each step for screen readers (Step 1..N).
+  sequenceStepsOf(row).forEach((step, i) => {
+    step.dataset.index = String(i + 1);
+    const value = step.querySelector<HTMLInputElement>(".s-step-value");
+    if (value) {
+      value.setAttribute("aria-label", t(currentLanguage, "stepValueLabel", { index: String(i + 1) }));
+    }
+    const del = step.querySelector<HTMLButtonElement>(".s-step-del");
+    if (del) {
+      const kindLabel = t(
+        currentLanguage,
+        KIND_LABEL_KEYS[(step.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ?? "url") as Action["kind"]],
+      );
+      del.setAttribute("aria-label", t(currentLanguage, "deleteStep", { index: String(i + 1) }));
+      del.title = `${kindLabel} — ${t(currentLanguage, "deleteStep", { index: String(i + 1) })}`;
+    }
+  });
+}
+
+function syncStepKindVisuals(step: HTMLElement): void {
+  const k = (step.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ??
+    "url") as SequenceStepKind;
+  const value = step.querySelector<HTMLInputElement>(".s-step-value")!;
+  value.placeholder = kindValuePlaceholder(k);
+  const appB = step.querySelector<HTMLButtonElement>(".s-app-browse")!;
+  const fileB = step.querySelector<HTMLButtonElement>(".s-file-browse")!;
+  const folderB = step.querySelector<HTMLButtonElement>(".s-folder-browse")!;
+  appB.hidden = k !== "app";
+  fileB.hidden = k !== "file";
+  folderB.hidden = k !== "folder";
+}
+
+function buildSequenceStep(
+  parentRow: HTMLElement,
+  step?: SequenceStep,
+): HTMLElement {
+  const initialKind = (step?.kind ?? "url") as SequenceStepKind;
+  const el = document.createElement("div");
+  el.className = "s-step";
+
+  const kindPicker = buildKindPicker(initialKind, { allowSequence: false });
+
+  const valueField = document.createElement("div");
+  valueField.className = "s-step-value-field";
+  const value = document.createElement("input");
+  value.type = "text";
+  value.className = "s-step-value";
+  value.value = step?.value ?? "";
+  value.placeholder = kindValuePlaceholder(initialKind);
+  valueField.appendChild(value);
+
+  const appBrowse = document.createElement("button");
+  appBrowse.type = "button";
+  appBrowse.className = "s-app-browse";
+  appBrowse.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>';
+  const fileBrowse = document.createElement("button");
+  fileBrowse.type = "button";
+  fileBrowse.className = "s-file-browse";
+  fileBrowse.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+  const folderBrowse = document.createElement("button");
+  folderBrowse.type = "button";
+  folderBrowse.className = "s-folder-browse";
+  folderBrowse.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
+
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "s-step-del";
+  del.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>';
+
+  // Per-step native pickers for file/folder (modal: write straight in).
+  const pickInto = async (directory: boolean): Promise<void> => {
+    try {
+      const picked = await pickPath({
+        directory,
+        multiple: false,
+        title: t(currentLanguage, directory ? "browseFolder" : "browseFile"),
+      });
+      if (typeof picked !== "string") return;
+      value.value = picked;
+      el.classList.remove("invalid");
+      value.focus();
+    } catch {
+      // Cancelled: leave untouched.
+    }
+  };
+  fileBrowse.addEventListener("click", () => void pickInto(false));
+  folderBrowse.addEventListener("click", () => void pickInto(true));
+
+  el.append(kindPicker, valueField, appBrowse, fileBrowse, folderBrowse, del);
+  // Per-step app picker: reuse the shared picker, anchored to the step. A
+  // detached dummy name keeps the parent action name untouched (steps are
+  // nameless; only kind+value matter). Appended after `el.append` so the
+  // step's own browse button exists when the picker wires itself.
+  const dummyName = document.createElement("input");
+  dummyName.type = "text";
+  attachAppPicker(el, value, dummyName);
+
+  del.addEventListener("click", () => {
+    // Keep at least the row shell: removing the last step leaves one empty
+    // step so the sequence never collapses to zero controls (validation
+    // still requires a value before save).
+    const siblings = sequenceStepsOf(parentRow);
+    if (siblings.length <= 1) {
+      value.value = "";
+      const trigger = el.querySelector<HTMLElement>(".s-kind-trigger");
+      if (trigger) {
+        trigger.dataset.value = "url";
+        const icon = trigger.querySelector<HTMLElement>(".s-kind-trigger-icon");
+        if (icon) icon.innerHTML = KIND_ICONS.url;
+      }
+      syncStepKindVisuals(el);
+      localizeSequenceStep(el, 1);
+      el.classList.remove("invalid");
+      value.focus();
+    } else {
+      el.remove();
+    }
+    syncSequenceCount(parentRow);
+  });
+
+  value.addEventListener("input", () => {
+    el.classList.remove("invalid");
+    parentRow.classList.remove("invalid");
+  });
+
+  kindPicker.addEventListener("kindchange", () => {
+    // Same stale-value rule as parent rows: kinds are incompatible.
+    if (value.value !== "") {
+      value.value = "";
+      el.classList.remove("invalid");
+    }
+    closeAppPickers();
+    syncStepKindVisuals(el);
+    syncSequenceCount(parentRow);
+  });
+
+  // Step browser dataset (per-URL override) round-trips silently like the
+  // parent row: preserved on save, never edited in the UI.
+  el.dataset.browser = step?.browser ?? "";
+  syncStepKindVisuals(el);
+  return el;
+}
+
+function localizeSequenceStep(step: HTMLElement, index: number): void {
+  const L = currentLanguage;
+  const value = step.querySelector<HTMLInputElement>(".s-step-value")!;
+  const k = (step.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ?? "url") as SequenceStepKind;
+  value.placeholder = kindValuePlaceholder(k);
+  value.setAttribute("aria-label", t(L, "stepValueLabel", { index: String(index) }));
+  const del = step.querySelector<HTMLButtonElement>(".s-step-del")!;
+  del.setAttribute("aria-label", t(L, "deleteStep", { index: String(index) }));
+  const appB = step.querySelector<HTMLButtonElement>(".s-app-browse")!;
+  appB.setAttribute("aria-label", t(L, "browseApps"));
+  appB.title = t(L, "browseApps");
+  const fileB = step.querySelector<HTMLButtonElement>(".s-file-browse")!;
+  fileB.setAttribute("aria-label", t(L, "browseFile"));
+  fileB.title = t(L, "browseFile");
+  const folderB = step.querySelector<HTMLButtonElement>(".s-folder-browse")!;
+  folderB.setAttribute("aria-label", t(L, "browseFolder"));
+  folderB.title = t(L, "browseFolder");
+  const kindListbox = step.querySelector<HTMLElement>(".s-kind-listbox");
+  if (kindListbox) kindListbox.setAttribute("aria-label", t(L, "actionTypeLabel"));
+}
+
+function collectSequenceSteps(row: HTMLElement): SequenceStep[] {
+  const out: SequenceStep[] = [];
+  for (const step of sequenceStepsOf(row)) {
+    const kind = (step.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ??
+      "url") as SequenceStepKind;
+    if (!SEQUENCE_STEP_KINDS.includes(kind)) continue;
+    const value = step.querySelector<HTMLInputElement>(".s-step-value")!.value.trim();
+    if (!value) continue;
+    const browser = step.dataset.browser ?? "";
+    const s: SequenceStep = { kind, value };
+    if (kind === "url" && browser) s.browser = browser;
+    out.push(s);
+    if (out.length >= MAX_SEQUENCE_STEPS) break;
+  }
+  return out;
+}
+
 function buildSettingsRow(a: Action): HTMLElement {
   const L = currentLanguage;
   const row = document.createElement("div");
@@ -2248,7 +2557,9 @@ function buildSettingsRow(a: Action): HTMLElement {
   nameField.className = "s-name-field";
   nameField.appendChild(name);
 
-  const kindPicker = buildKindPicker(a.kind);
+  const kindPicker = buildKindPicker(a.kind, { allowSequence: true });
+  const parentKindTrigger = (): HTMLElement | null =>
+    top.querySelector<HTMLElement>(".s-kind-trigger");
 
   // Right rail: reorder and delete, stacked.
   const rail = document.createElement("div");
@@ -2365,14 +2676,72 @@ function buildSettingsRow(a: Action): HTMLElement {
   // in the config file must survive a save round-trip untouched.
   row.dataset.browser = a.browser ?? "";
 
+  // Sequence steps editor: header (label + live count) + step list + dashed
+  // "Add step" (same family as #actions-add, smaller). Spans the full card
+  // width below the value line; hidden unless kind == sequence.
+  const stepsWrap = document.createElement("div");
+  stepsWrap.className = "s-steps";
+  const stepsHead = document.createElement("div");
+  stepsHead.className = "s-steps-head";
+  const stepsTitle = document.createElement("span");
+  stepsTitle.className = "s-steps-title";
+  stepsTitle.textContent = t(L, "sequenceStepsLabel");
+  const stepsCount = document.createElement("span");
+  stepsCount.className = "s-steps-count";
+  stepsHead.append(stepsTitle, stepsCount);
+  const stepsList = document.createElement("div");
+  stepsList.className = "s-steps-list";
+  stepsList.setAttribute("role", "list");
+  const stepsAdd = document.createElement("button");
+  stepsAdd.type = "button";
+  stepsAdd.className = "s-steps-add";
+  const stepsAddIcon = document.createElement("span");
+  stepsAddIcon.className = "a-add-icon";
+  stepsAddIcon.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>';
+  const stepsAddLabel = document.createElement("span");
+  stepsAddLabel.className = "a-add-label";
+  stepsAddLabel.textContent = t(L, "addStep");
+  stepsAdd.append(stepsAddIcon, stepsAddLabel);
+  stepsAdd.setAttribute("aria-label", t(L, "addStep"));
+  stepsWrap.append(stepsHead, stepsList, stepsAdd);
+
+  const addStep = (step?: SequenceStep, focusValue = false): void => {
+    if (sequenceStepsOf(row).length >= MAX_SEQUENCE_STEPS) return;
+    const el = buildSequenceStep(row, step);
+    el.setAttribute("role", "listitem");
+    stepsList.appendChild(el);
+    // Localize the new step with its 1-based position.
+    localizeSequenceStep(el, sequenceStepsOf(row).length);
+    syncSequenceCount(row);
+    if (focusValue) el.querySelector<HTMLInputElement>(".s-step-value")?.focus();
+  };
+
+  stepsAdd.addEventListener("click", () => {
+    addStep(undefined, true);
+    // The add button disables itself at 5; keep focus reachable.
+    if (stepsAdd.disabled) stepsList.lastElementChild?.querySelector<HTMLInputElement>(".s-step-value")?.focus();
+  });
+
   const syncKind = () => {
-    const k = (row.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ??
-      "url") as Action["kind"];
+    const k = (parentKindTrigger()?.dataset.value ?? "url") as Action["kind"];
     faceIcon.innerHTML = KIND_ICONS[k];
-    value.placeholder = kindValuePlaceholder(k);
-    browse.hidden = k !== "app";
+    const isSeq = k === "sequence";
+    row.classList.toggle("kind-sequence", isSeq);
+    if (!isSeq) {
+      value.placeholder = kindValuePlaceholder(k);
+      browse.hidden = k !== "app";
       fileBrowse.hidden = k !== "file";
-    folderBrowse.hidden = k !== "folder";
+      folderBrowse.hidden = k !== "folder";
+    } else {
+      // Sequence runs on steps: the single value + its pickers retire.
+      browse.hidden = true;
+      fileBrowse.hidden = true;
+      folderBrowse.hidden = true;
+      // Guarantee at least one editable step when entering sequence mode.
+      if (sequenceStepsOf(row).length === 0) addStep(undefined, false);
+      syncSequenceCount(row);
+    }
     row.classList.toggle("kind-app", k === "app");
     row.classList.toggle("kind-file", k === "file");
     row.classList.toggle("kind-folder", k === "folder");
@@ -2383,8 +2752,31 @@ function buildSettingsRow(a: Action): HTMLElement {
   // offer stale data that fails or — worse — runs something unintended. The
   // name is the user's own label and is kept, as is the group assignment
   // (orthogonal categorization). The legacy per-URL browser is tied to the
-  // old value, so it is dropped too.
-  kindPicker.addEventListener("kindchange", () => {
+  // old value, so it is dropped too. Entering `sequence` starts from one
+  // empty step; leaving it keeps the steps in the DOM (hidden) so toggling
+  // back restores them.
+  kindPicker.addEventListener("kindchange", (e) => {
+    const prev = (e as CustomEvent<{ previousKind: string }>).detail?.previousKind ?? "";
+    const next = parentKindTrigger()?.dataset.value ?? "url";
+    if (next === "sequence") {
+      if (value.value !== "") {
+        value.value = "";
+        row.classList.remove("invalid");
+      }
+      row.dataset.browser = "";
+      closeAppPickers();
+      syncKind();
+      // Focus the first step so the new mode is immediately typeable.
+      stepsList.querySelector<HTMLInputElement>(".s-step-value")?.focus();
+      return;
+    }
+    if (prev === "sequence") {
+      // Leaving sequence: the single value starts empty (it was unused).
+      row.dataset.browser = "";
+      closeAppPickers();
+      syncKind();
+      return;
+    }
     if (value.value !== "") {
       value.value = "";
       row.classList.remove("invalid");
@@ -2412,10 +2804,25 @@ function buildSettingsRow(a: Action): HTMLElement {
 
   top.append(nameField, kindPicker);
   valueWrap.append(valueField, browse, fileBrowse, folderBrowse, groupField, del);
-  bodyGrid.append(top, rail, valueWrap);
+  bodyGrid.append(top, rail, valueWrap, stepsWrap);
   row.append(face, body);
   attachAppPicker(row, value, name);
+  // Hydrate steps for sequences (cap + drop nesting like the backend); fresh
+  // `url` rows start leaf-only.
+  if (a.kind === "sequence") {
+    const initial = (a.steps ?? []).slice(0, MAX_SEQUENCE_STEPS);
+    if (initial.length === 0) {
+      addStep(undefined, false);
+    } else {
+      for (const s of initial) {
+        if (!SEQUENCE_STEP_KINDS.includes(s.kind as SequenceStepKind)) continue;
+        addStep(s, false);
+      }
+      if (sequenceStepsOf(row).length === 0) addStep(undefined, false);
+    }
+  }
   syncKind();
+  syncSequenceCount(row);
   return row;
 }
 
@@ -2448,11 +2855,21 @@ function localizeSettingsRow(row: HTMLElement): void {
   if (face) face.setAttribute("aria-label", name.value.trim() || t(L, "namePlaceholder"));
   name.placeholder = t(L, "namePlaceholder");
   name.setAttribute("aria-label", t(L, "namePlaceholder"));
-  const kindListbox = row.querySelector<HTMLElement>(".s-kind-listbox");
-  if (kindListbox) kindListbox.setAttribute("aria-label", t(L, "actionTypeLabel"));
-  value.placeholder = kindValuePlaceholder(
-    row.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ?? "url",
-  );
+  const parentTrigger = row.querySelector<HTMLElement>(".settings-row-top .s-kind-trigger");
+  const parentKind = (parentTrigger?.dataset.value ?? "url") as Action["kind"];
+  for (const listbox of row.querySelectorAll<HTMLElement>(".s-kind-listbox")) {
+    listbox.setAttribute("aria-label", t(L, "actionTypeLabel"));
+  }
+  // Refresh every kind option label (parent + steps) so a language switch
+  // doesn't leave stale English behind until the next open.
+  for (const option of row.querySelectorAll<HTMLElement>(".s-kind-option")) {
+    const k = (option.dataset.value ?? "url") as Action["kind"];
+    const label = option.querySelector<HTMLElement>(".s-kind-option-label");
+    if (label && KIND_LABEL_KEYS[k]) label.textContent = t(L, KIND_LABEL_KEYS[k]);
+  }
+  if (parentKind !== "sequence") {
+    value.placeholder = kindValuePlaceholder(parentKind);
+  }
   value.setAttribute("aria-label", t(L, "actionValueLabel"));
   const groupTrigger = row.querySelector<HTMLElement>(".s-group-trigger");
   if (groupTrigger) {
@@ -2469,23 +2886,33 @@ function localizeSettingsRow(row: HTMLElement): void {
   const actionName = name.value.trim() || t(L, "namePlaceholder");
   up.setAttribute("aria-label", t(L, "moveActionUp", { name: actionName }));
   down.setAttribute("aria-label", t(L, "moveActionDown", { name: actionName }));
-  const browse = row.querySelector<HTMLButtonElement>(".s-app-browse");
+  // Parent value-line browses (first match is the parent's; steps are handled below).
+  const browse = row.querySelector<HTMLButtonElement>(".s-value-row .s-app-browse");
   if (browse) {
     browse.setAttribute("aria-label", t(L, "browseApps"));
     browse.title = t(L, "browseApps");
   }
-  const fileBrowse = row.querySelector<HTMLButtonElement>(".s-file-browse");
+  const fileBrowse = row.querySelector<HTMLButtonElement>(".s-value-row .s-file-browse");
   if (fileBrowse) {
     fileBrowse.setAttribute("aria-label", t(L, "browseFile"));
     fileBrowse.title = t(L, "browseFile");
   }
-  const folderBrowse = row.querySelector<HTMLButtonElement>(".s-folder-browse");
+  const folderBrowse = row.querySelector<HTMLButtonElement>(".s-value-row .s-folder-browse");
   if (folderBrowse) {
     folderBrowse.setAttribute("aria-label", t(L, "browseFolder"));
     folderBrowse.title = t(L, "browseFolder");
   }
   const apSearch = row.querySelector<HTMLInputElement>(".ap-search");
   if (apSearch) apSearch.placeholder = t(L, "appSearchPlaceholder");
+  // Sequence chrome + each step.
+  const stepsTitle = row.querySelector<HTMLElement>(".s-steps-title");
+  if (stepsTitle) stepsTitle.textContent = t(L, "sequenceStepsLabel");
+  const stepsAddLabel = row.querySelector<HTMLElement>(".s-steps-add .a-add-label");
+  if (stepsAddLabel) stepsAddLabel.textContent = t(L, "addStep");
+  const stepsAdd = row.querySelector<HTMLButtonElement>(".s-steps-add");
+  if (stepsAdd) stepsAdd.setAttribute("aria-label", t(L, "addStep"));
+  sequenceStepsOf(row).forEach((step, i) => localizeSequenceStep(step, i + 1));
+  syncSequenceCount(row);
 }
 
 function collectSettingsActions(): Action[] {
@@ -2493,11 +2920,19 @@ function collectSettingsActions(): Action[] {
   const out: Action[] = [];
   for (const row of actionsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     const name = row.querySelector<HTMLInputElement>(".s-name")!.value.trim();
-    const kind = (row.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ??
+    const kind = (row.querySelector<HTMLElement>(".settings-row-top .s-kind-trigger")?.dataset.value ??
+      row.querySelector<HTMLElement>(".s-kind-trigger")?.dataset.value ??
       "url") as Action["kind"];
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
     const browser = row.dataset.browser ?? "";
     const group = row.querySelector<HTMLElement>(".s-group-trigger")?.dataset.value ?? "";
+    if (kind === "sequence") {
+      const steps = collectSequenceSteps(row);
+      const a: Action = { name, kind, value: "", steps };
+      if (group && saved.some((g) => g.id === group)) a.group = group;
+      out.push(a);
+      continue;
+    }
     const a: Action = { name, kind, value };
     if (kind === "url" && browser) a.browser = browser;
     if (group && saved.some((g) => g.id === group)) a.group = group;
@@ -2534,10 +2969,32 @@ async function saveSettings(): Promise<void> {
 
 async function saveActions(): Promise<void> {
   let invalid = false;
+  let sequenceInvalid = false;
   let groupError = false;
   actionsError.textContent = "";
   for (const row of actionsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     const name = row.querySelector<HTMLInputElement>(".s-name")!.value.trim();
+    const kind = (row.querySelector<HTMLElement>(".settings-row-top .s-kind-trigger")?.dataset.value ??
+      "url") as Action["kind"];
+    row.classList.remove("invalid");
+    for (const st of row.querySelectorAll<HTMLElement>(".s-step")) st.classList.remove("invalid");
+    if (kind === "sequence") {
+      const steps = sequenceStepsOf(row);
+      let runnable = 0;
+      for (const st of steps) {
+        const v = st.querySelector<HTMLInputElement>(".s-step-value")!.value.trim();
+        if (v) runnable++;
+        else st.classList.add("invalid");
+      }
+      const bad = name === "" || runnable === 0;
+      row.classList.toggle("invalid", bad);
+      if (bad) {
+        sequenceInvalid = true;
+        // Keep leaf `invalid` for the generic focus fallback too.
+        invalid = true;
+      }
+      continue;
+    }
     const value = row.querySelector<HTMLInputElement>(".s-value")!.value.trim();
     const bad = name === "" || value === "";
     row.classList.toggle("invalid", bad);
@@ -2551,8 +3008,20 @@ async function saveActions(): Promise<void> {
   }
   if (invalid) {
     setActionsTab("actions", false);
-    actionsError.textContent = t(currentLanguage, "saveValidationError");
-    actionsRows.querySelector<HTMLInputElement>(".settings-row.invalid .s-name")?.focus();
+    // Prefer the sequence-specific hint when the only failures are sequences.
+    const onlySequences = sequenceInvalid && [...actionsRows.querySelectorAll<HTMLElement>(".settings-row.invalid")].every((r) => {
+      const k = (r.querySelector<HTMLElement>(".settings-row-top .s-kind-trigger")?.dataset.value ?? "url") as Action["kind"];
+      return k === "sequence";
+    });
+    actionsError.textContent = t(
+      currentLanguage,
+      onlySequences ? "sequenceValidationError" : "saveValidationError",
+    );
+    const firstInvalid = actionsRows.querySelector<HTMLElement>(".settings-row.invalid");
+    // Focus the first empty control: step value for sequences, name otherwise.
+    const stepValue = firstInvalid?.querySelector<HTMLInputElement>(".s-step.invalid .s-step-value");
+    if (stepValue) stepValue.focus();
+    else actionsRows.querySelector<HTMLInputElement>(".settings-row.invalid .s-name")?.focus();
     return;
   }
   if (groupError) {

@@ -54,10 +54,21 @@ pub fn list_apps() -> Vec<apps::AppEntry> {
 /// fires while the close animation runs; nothing blocks on the process.
 /// A failure to launch is returned to the webview so the user sees why
 /// nothing happened (the overlay stays open).
+/// Sequences are best-effort: every step runs in order without delay, a
+/// failing step never stops the rest, and the overlay always closes (the
+/// fan-out already happened, so staying open would be misleading).
 #[tauri::command]
 pub fn execute(app: AppHandle, state: State<'_, AppState>, index: usize) -> Result<(), String> {
     let action = state.config.lock().unwrap().actions.get(index).cloned();
     if let Some(action) = action {
+        let is_sequence = action.kind == config::ActionKind::Sequence;
+        if is_sequence {
+            // Best-effort fan-out; individual step failures are logged in
+            // `actions::spawn` and never block the close.
+            let _ = actions::spawn(&app, &action);
+            overlay::close(&app);
+            return Ok(());
+        }
         actions::spawn(&app, &action)?;
     }
     overlay::close(&app);

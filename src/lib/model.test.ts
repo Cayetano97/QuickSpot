@@ -7,7 +7,11 @@ import {
   hexLuminance,
   isHexColor,
   isReadableOnDark,
+  isSequenceStepKind,
+  isValidSequenceAction,
+  MAX_SEQUENCE_STEPS,
   moveSelection,
+  normalizeSequenceSteps,
   slugify,
   uniqueGroupId,
   type Action,
@@ -217,5 +221,56 @@ describe("groups", () => {
     expect(isReadableOnDark("#111113")).toBe(false);
     expect(isReadableOnDark("#0a0a0a")).toBe(false);
     expect(isReadableOnDark("#1b1b1f")).toBe(false);
+  });
+});
+
+describe("sequence", () => {
+  it("caps steps at five", () => {
+    expect(MAX_SEQUENCE_STEPS).toBe(5);
+  });
+
+  it("accepts leaf kinds and rejects nested sequences", () => {
+    for (const k of ["url", "command", "app", "file", "folder"]) {
+      expect(isSequenceStepKind(k)).toBe(true);
+    }
+    expect(isSequenceStepKind("sequence")).toBe(false);
+    expect(isSequenceStepKind("ftp")).toBe(false);
+  });
+
+  it("normalizes steps: trims, drops blanks and nesting, caps at five", () => {
+    const steps = normalizeSequenceSteps([
+      { kind: "url", value: "  https://a.dev  " },
+      { kind: "sequence" as never, value: "nested" },
+      { kind: "command", value: "   " },
+      { kind: "file", value: "/tmp/a.txt" },
+      { kind: "folder", value: "/tmp/b" },
+      { kind: "url", value: "https://c.dev" },
+      { kind: "url", value: "https://d.dev" },
+    ]);
+    expect(steps).toHaveLength(5);
+    expect(steps[0]).toEqual({ kind: "url", value: "https://a.dev" });
+    expect(steps[1]).toEqual({ kind: "file", value: "/tmp/a.txt" });
+  });
+
+  it("keeps a per-URL browser override, drops it elsewhere", () => {
+    const steps = normalizeSequenceSteps([
+      { kind: "url", value: "https://a.dev", browser: "/usr/bin/firefox" },
+      { kind: "app", value: "/bin/x", browser: "/usr/bin/firefox" },
+    ]);
+    expect(steps[0].browser).toBe("/usr/bin/firefox");
+    expect(steps[1].browser).toBeUndefined();
+  });
+
+  it("validates a sequence by name plus one runnable step", () => {
+    expect(
+      isValidSequenceAction({ name: "Morning", steps: [{ kind: "url", value: "https://a.dev" }] }),
+    ).toBe(true);
+    expect(isValidSequenceAction({ name: "  ", steps: [{ kind: "url", value: "https://a.dev" }] })).toBe(
+      false,
+    );
+    expect(isValidSequenceAction({ name: "Morning", steps: [] })).toBe(false);
+    expect(
+      isValidSequenceAction({ name: "Morning", steps: [{ kind: "url", value: "   " }] }),
+    ).toBe(false);
   });
 });

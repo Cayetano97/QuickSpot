@@ -1713,3 +1713,200 @@ describe("settings update check", () => {
     expect(updateBtn().textContent).toBe("Buscar ahora");
   });
 });
+
+describe("sequence actions", () => {
+  it("offers Sequence in the kind picker with its own icon", async () => {
+    await openOverlay();
+    openActions();
+    const option = document.querySelector<HTMLButtonElement>(
+      '.settings-row-top .s-kind-option[data-value="sequence"]',
+    );
+    expect(option).not.toBeNull();
+    expect(option!.textContent).toBe("Sequence");
+    expect(option!.querySelector("svg")).not.toBeNull();
+  });
+
+  it("switching a row to sequence reveals the steps editor with one empty step", async () => {
+    await mount({ actions: [{ name: "Code", kind: "app", value: "/Applications/Code.app" }] });
+    await openOverlay();
+    openActions();
+    const row = document.querySelector<HTMLElement>(".settings-row")!;
+    expect(row.classList.contains("kind-sequence")).toBe(false);
+    document
+      .querySelector<HTMLButtonElement>('.settings-row-top .s-kind-option[data-value="sequence"]')!
+      .click();
+    expect(row.classList.contains("kind-sequence")).toBe(true);
+    expect(row.querySelectorAll(".s-step").length).toBe(1);
+    expect(row.querySelector(".s-steps-count")!.textContent).toBe("1 of 5 steps");
+  });
+
+  it("adds steps up to five then disables the add button", async () => {
+    await mount({ actions: [{ name: "Morning", kind: "url", value: "https://example.com" }] });
+    await openOverlay();
+    openActions();
+    document
+      .querySelector<HTMLButtonElement>('.settings-row-top .s-kind-option[data-value="sequence"]')!
+      .click();
+    const row = document.querySelector<HTMLElement>(".settings-row")!;
+    const add = row.querySelector<HTMLButtonElement>(".s-steps-add")!;
+    const fillStep = (i: number, value: string): void => {
+      const input = row.querySelectorAll<HTMLInputElement>(".s-step-value")[i];
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    fillStep(0, "https://a.dev");
+    for (let i = 1; i < 5; i++) {
+      add.click();
+      fillStep(i, `https://example.com/${i}`);
+    }
+    expect(row.querySelectorAll(".s-step").length).toBe(5);
+    expect(row.querySelector(".s-steps-count")!.textContent).toBe("5 of 5 steps");
+    expect(add.disabled).toBe(true);
+    add.click();
+    expect(row.querySelectorAll(".s-step").length).toBe(5);
+  });
+
+  it("blocks saving an empty sequence with the sequence hint", async () => {
+    await mount({ actions: [{ name: "Morning", kind: "url", value: "https://example.com" }] });
+    await openOverlay();
+    openActions();
+    document
+      .querySelector<HTMLButtonElement>('.settings-row-top .s-kind-option[data-value="sequence"]')!
+      .click();
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    await flush();
+    expect(document.querySelector("#actions-error")!.textContent).toBe(
+      "Sequences need a name and at least one step with a value",
+    );
+    expect(invoke).not.toHaveBeenCalledWith("save_config", expect.anything());
+  });
+
+  it("saves a sequence with ordered leaf steps and no parent value", async () => {
+    await mount({
+      actions: [
+        {
+          name: "Morning",
+          kind: "sequence",
+          value: "",
+          steps: [
+            { kind: "folder", value: "/tmp/Projects" },
+            { kind: "url", value: "https://example.com" },
+          ],
+        },
+      ],
+    });
+    await openOverlay();
+    openActions();
+    expect(document.querySelectorAll(".s-step").length).toBe(2);
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({
+        actions: [
+          {
+            name: "Morning",
+            kind: "sequence",
+            value: "",
+            steps: [
+              { kind: "folder", value: "/tmp/Projects" },
+              { kind: "url", value: "https://example.com" },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+
+  it("step kind pickers never offer a nested sequence", async () => {
+    await mount({
+      actions: [
+        {
+          name: "Morning",
+          kind: "sequence",
+          value: "",
+          steps: [{ kind: "url", value: "https://example.com" }],
+        },
+      ],
+    });
+    await openOverlay();
+    openActions();
+    const step = document.querySelector<HTMLElement>(".s-step")!;
+    expect(
+      step.querySelector<HTMLButtonElement>('.s-kind-option[data-value="sequence"]'),
+    ).toBeNull();
+    expect(
+      [...step.querySelectorAll<HTMLElement>(".s-kind-option")].map((o) => o.dataset.value),
+    ).toEqual(["url", "command", "app", "file", "folder"]);
+  });
+
+  it("renders a sequence chip with the sequence icon and runs it via execute", async () => {
+    await mount({
+      actions: [
+        {
+          name: "Morning",
+          kind: "sequence",
+          value: "",
+          steps: [
+            { kind: "folder", value: "/tmp/Projects" },
+            { kind: "url", value: "https://example.com" },
+          ],
+        },
+      ],
+    });
+    const icon = document.querySelector<HTMLElement>(".chip-icon")!;
+    expect(icon.innerHTML).toContain("M12 2l9 5-9 5-9-5 9-5z");
+    document.querySelectorAll<HTMLButtonElement>(".chip")[0].click();
+    expect(invoke).toHaveBeenCalledWith("execute", { index: 0 });
+  });
+
+  it("wheeling the editor dismisses an open kind picker", async () => {
+    await openOverlay();
+    openActions();
+    const trigger = document.querySelector<HTMLButtonElement>(".s-kind-trigger")!;
+    const listbox = document.querySelector<HTMLElement>(".s-kind-listbox")!;
+    trigger.click();
+    expect(listbox.hidden).toBe(false);
+    document
+      .querySelector<HTMLElement>("#actions-rows")!
+      .dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    expect(listbox.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("wheeling over the open menu itself keeps it open", async () => {
+    await openOverlay();
+    openActions();
+    const listbox = document.querySelector<HTMLElement>(".s-kind-listbox")!;
+    document.querySelector<HTMLButtonElement>(".s-kind-trigger")!.click();
+    expect(listbox.hidden).toBe(false);
+    listbox.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    expect(listbox.hidden).toBe(false);
+  });
+
+  it("scrolling the editor after open dismisses a step kind picker", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    await mount({
+      actions: [
+        {
+          name: "Morning",
+          kind: "sequence",
+          value: "",
+          steps: [{ kind: "url", value: "https://example.com" }],
+        },
+      ],
+    });
+    await openOverlay();
+    openActions();
+    const stepTrigger = document.querySelector<HTMLElement>(".s-step .s-kind-trigger")!;
+    const stepListbox = document.querySelector<HTMLElement>(".s-step .s-kind-listbox")!;
+    stepTrigger.click();
+    expect(stepListbox.hidden).toBe(false);
+    // Move past the open-race guard, then scroll the editor like a
+    // scrollbar drag (no wheel involved).
+    vi.spyOn(Date, "now").mockReturnValue(1_000_000 + 500);
+    document.querySelector<HTMLElement>("#actions-rows")!.dispatchEvent(new Event("scroll"));
+    expect(stepListbox.hidden).toBe(true);
+    vi.spyOn(Date, "now").mockRestore?.();
+  });
+});

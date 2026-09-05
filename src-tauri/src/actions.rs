@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
-use crate::config::{Action, ActionKind};
+use crate::config::{Action, ActionKind, MAX_SEQUENCE_STEPS};
 
 /// A pure, platform-agnostic description of how an action will run.
 /// `plan` is what the tests exercise; `spawn` executes it.
@@ -25,6 +25,9 @@ pub enum Execution {
     Shell { program: String, args: Vec<String> },
     /// Launch a binary directly.
     App { program: String, args: Vec<String> },
+    /// Run each step in order, fire-and-forget. Empty after filtering means
+    /// the sequence is misconfigured (surfaces as an execution error).
+    Sequence(Vec<Execution>),
 }
 
 #[cfg(windows)]
@@ -68,6 +71,7 @@ fn is_host_port(v: &str) -> bool {
 
 pub fn plan(action: &Action) -> Execution {
     match action.kind {
+        ActionKind::Sequence => plan_sequence(action),
         ActionKind::Url => {
             let url = normalize_url(&action.value);
             match &action.browser {
@@ -124,12 +128,49 @@ pub fn plan(action: &Action) -> Execution {
     }
 }
 
-/// Fire an action and forget: detached, no console window, never blocks.
-pub fn spawn(app: &AppHandle, action: &Action) -> Result<(), String> {
-    match plan(action) {
+/// Plan a sequence: each leaf step (url/command/app/file/folder) becomes its
+/// own Execution, in order, capped at MAX_SEQUENCE_STEPS. Nested `sequence`
+/// steps and blank values are skipped so a hand-edit can never recurse or
+/// spawn empty commands. An empty result means misconfigured.
+fn plan_sequence(action: &Action) -> Execution {
+    let mut out = Vec::new();
+    if let Some(steps) = action.steps.as_deref() {
+        for step in steps.iter().take(MAX_SEQUENCE_STEPS) {
+            if step.kind == ActionKind::Sequence {
+                continue;
+            }
+            if step.value.trim().is_empty() {
+                continue;
+            }
+            let leaf = Action {
+                name: String::new(),
+                kind: step.kind,
+                value: step.value.clone(),
+                browser: step.browser.clone(),
+                hint: None,
+                group: None,
+                steps: None,
+            };
+            // `plan` on a leaf never returns Sequence (no nesting above).
+            match plan(&leaf) {
+                Execution::Sequence(_) => continue,
+                exec => out.push(exec),
+            }
+            if out.len() >= MAX_SEQUENCE_STEPS {
+                break;
+            }
+        }
+    }
+    Execution::Sequence(out)
+}
+
+/// Fire a single planned execution (leaf only; sequences are fanned out by
+/// `spawn`).
+fn spawn_one(app: &AppHandle, exec: &Execution) -> Result<(), String> {
+    match exec {
         Execution::UrlDefault(url) => app
             .opener()
-            .open_url(url, None::<&str>)
+            .open_url(url.clone(), None::<&str>)
             .map_err(|e| e.to_string()),
         Execution::UrlInBrowser { browser, url } => {
             let mut cmd = Command::new(browser);
@@ -138,18 +179,54 @@ pub fn spawn(app: &AppHandle, action: &Action) -> Result<(), String> {
         }
         Execution::PathDefault(path) | Execution::FolderDefault(path) => app
             .opener()
-            .open_path(path, None::<&str>)
+            .open_path(path.clone(), None::<&str>)
             .map_err(|e| e.to_string()),
         Execution::Shell { program, args } => {
             let mut cmd = Command::new(program);
-            cmd.args(args);
+            cmd.args(args.clone());
             spawn_detached(&mut cmd)
         }
         Execution::App { program, args } => {
             let mut cmd = Command::new(program);
-            cmd.args(args);
+            cmd.args(args.clone());
             spawn_detached(&mut cmd)
         }
+        Execution::Sequence(_) => Err("nested sequences are not supported".into()),
+    }
+}
+
+/// Fire an action and forget: detached, no console window, never blocks.
+/// Sequences run each step in order without delay and keep going when one
+/// step fails (best-effort); an empty sequence errors so the overlay can
+/// surface the misconfiguration instead of closing silently.
+pub fn spawn(app: &AppHandle, action: &Action) -> Result<(), String> {
+    match plan(action) {
+        Execution::Sequence(steps) => {
+            if steps.is_empty() {
+                return Err("sequence has no runnable steps".into());
+            }
+            let mut first_err: Option<String> = None;
+            for exec in &steps {
+                if let Err(e) = spawn_one(app, exec) {
+                    // Keep going; remember the first failure for the caller.
+                    // The `execute` command still closes the overlay for
+                    // sequences (fire-and-forget UX) and returns Ok — this
+                    // error is for tests/diagnostics and non-UI callers.
+                    if first_err.is_none() {
+                        first_err = Some(e);
+                    }
+                }
+            }
+            // Best-effort UX: the overlay closes even on partial failure.
+            // Surface the failure only when *every* step failed would be
+            // arbitrary; instead succeed when at least the fan-out ran.
+            // Log the first error for diagnostics and return Ok.
+            if let Some(e) = first_err {
+                eprintln!("[quickspot] sequence step failed: {e}");
+            }
+            Ok(())
+        }
+        exec => spawn_one(app, &exec),
     }
 }
 
@@ -178,6 +255,27 @@ mod tests {
             browser: browser.map(str::to_string),
             hint: None,
             group: None,
+            steps: None,
+        }
+    }
+
+    fn sequence_action(steps: Vec<crate::config::SequenceStep>) -> Action {
+        Action {
+            name: "Morning".into(),
+            kind: ActionKind::Sequence,
+            value: String::new(),
+            browser: None,
+            hint: None,
+            group: None,
+            steps: Some(steps),
+        }
+    }
+
+    fn step(kind: ActionKind, value: &str) -> crate::config::SequenceStep {
+        crate::config::SequenceStep {
+            kind,
+            value: value.into(),
+            browser: None,
         }
     }
 
@@ -372,5 +470,65 @@ mod tests {
             }
             other => panic!("unexpected plan: {other:?}"),
         }
+    }
+
+    #[test]
+    fn sequence_plans_each_leaf_step_in_order() {
+        let a = sequence_action(vec![
+            step(ActionKind::Folder, "/tmp/Projects"),
+            step(ActionKind::Url, "https://example.com"),
+        ]);
+        match plan(&a) {
+            Execution::Sequence(steps) => {
+                assert_eq!(steps.len(), 2);
+                assert_eq!(
+                    steps[0],
+                    Execution::FolderDefault("/tmp/Projects".into())
+                );
+                assert_eq!(
+                    steps[1],
+                    Execution::UrlDefault("https://example.com".into())
+                );
+            }
+            other => panic!("unexpected plan: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sequence_skips_nested_sequences_and_blank_values() {
+        let a = sequence_action(vec![
+            step(ActionKind::Url, "https://a.dev"),
+            step(ActionKind::Sequence, "ignored"),
+            step(ActionKind::Command, "   "),
+            step(ActionKind::File, "/tmp/a.txt"),
+        ]);
+        match plan(&a) {
+            Execution::Sequence(steps) => {
+                assert_eq!(steps.len(), 2);
+                assert_eq!(steps[0], Execution::UrlDefault("https://a.dev".into()));
+                assert_eq!(steps[1], Execution::PathDefault("/tmp/a.txt".into()));
+            }
+            other => panic!("unexpected plan: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sequence_caps_at_five_steps() {
+        let steps: Vec<_> = (0..8)
+            .map(|i| step(ActionKind::Url, &format!("https://example.com/{i}")))
+            .collect();
+        let a = sequence_action(steps);
+        match plan(&a) {
+            Execution::Sequence(planned) => assert_eq!(planned.len(), 5),
+            other => panic!("unexpected plan: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_sequence_plans_to_empty_for_error_surfacing() {
+        let a = sequence_action(vec![]);
+        assert_eq!(plan(&a), Execution::Sequence(vec![]));
+        let a = sequence_action(vec![step(ActionKind::Url, "   ")]);
+        assert_eq!(plan(&a), Execution::Sequence(vec![]));
     }
 }

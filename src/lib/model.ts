@@ -1,6 +1,26 @@
 import { MAX_QUERY_BYTES, MAX_VISIBLE } from "./constants";
 
-export type ActionKind = "url" | "command" | "app" | "file" | "folder";
+export type ActionKind = "url" | "command" | "app" | "file" | "folder" | "sequence";
+
+/** Leaf kinds a sequence step may use (never `sequence`: no nesting). */
+export type SequenceStepKind = Exclude<ActionKind, "sequence">;
+
+export const SEQUENCE_STEP_KINDS: readonly SequenceStepKind[] = [
+  "url",
+  "command",
+  "app",
+  "file",
+  "folder",
+] as const;
+
+/** Maximum steps a sequence action holds (backend truncates beyond this). */
+export const MAX_SEQUENCE_STEPS = 5;
+
+export interface SequenceStep {
+  kind: SequenceStepKind;
+  value: string;
+  browser?: string | null;
+}
 
 export interface Action {
   name: string;
@@ -10,6 +30,51 @@ export interface Action {
   hint?: string | null;
   /** Id of the group this action belongs to, if any. */
   group?: string | null;
+  /** Sub-actions for `kind === "sequence"` (1..MAX_SEQUENCE_STEPS). */
+  steps?: SequenceStep[] | null;
+}
+
+/** True for the six-way picker value that fans out to sub-actions. */
+export const isSequenceKind = (kind: string): kind is "sequence" => kind === "sequence";
+
+/** True for a runnable leaf kind (anything but `sequence`). */
+export function isSequenceStepKind(kind: string): kind is SequenceStepKind {
+  return (SEQUENCE_STEP_KINDS as readonly string[]).includes(kind);
+}
+
+/** Trimmed, non-empty leaf steps in order, capped at MAX_SEQUENCE_STEPS.
+ * Drops nested `sequence` kinds and blank values (same rule as Rust
+ * `sanitize`). Pure: never mutates the input. */
+export function normalizeSequenceSteps(
+  steps: readonly SequenceStep[] | null | undefined,
+): SequenceStep[] {
+  if (!steps) return [];
+  const out: SequenceStep[] = [];
+  for (const s of steps) {
+    if (out.length >= MAX_SEQUENCE_STEPS) break;
+    if (!s || !isSequenceStepKind(s.kind)) continue;
+    const value = (s.value ?? "").trim();
+    if (!value) continue;
+    const browser = (s.browser ?? "").trim();
+    const clean: SequenceStep = { kind: s.kind, value };
+    if (s.kind === "url" && browser) clean.browser = browser;
+    out.push(clean);
+  }
+  return out;
+}
+
+/** A sequence action is valid with a non-blank name and at least one
+ * runnable step (blank steps don't count). */
+export function isValidSequenceAction(a: Pick<Action, "name" | "steps">): boolean {
+  if (!a.name.trim()) return false;
+  const steps = a.steps ?? [];
+  let runnable = 0;
+  for (const s of steps) {
+    if (!s || !isSequenceStepKind(s.kind)) continue;
+    if ((s.value ?? "").trim()) runnable++;
+    if (runnable > 0) break;
+  }
+  return runnable > 0;
 }
 
 export interface Group {

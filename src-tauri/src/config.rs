@@ -17,6 +17,25 @@ pub enum ActionKind {
     File,
     /// Open a folder with the OS file manager.
     Folder,
+    /// Run up to MAX_SEQUENCE_STEPS sub-actions in order (no nesting).
+    Sequence,
+}
+
+/// Maximum steps a `sequence` action can hold. The editor caps at this, and
+/// the backend truncates anything beyond it so a hand-edit can never blow up
+/// execution.
+pub const MAX_SEQUENCE_STEPS: usize = 5;
+
+/// One step inside a `sequence` action. Intentionally minimal: a kind, a
+/// value, and an optional per-URL browser override. Steps never nest
+/// (`sequence` inside `sequence` is dropped on parse/sanitize/plan).
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SequenceStep {
+    pub kind: ActionKind,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -32,6 +51,10 @@ pub struct Action {
     /// Id of the group this action belongs to, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// Sub-actions for `kind == Sequence`. `None`/empty for every other kind.
+    /// `value` is unused for sequences (always normalized to `""` on save).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps: Option<Vec<SequenceStep>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -108,6 +131,7 @@ pub fn defaults() -> Vec<Action> {
             browser: None,
             hint: None,
             group: None,
+            steps: None,
         },
         Action {
             name: "YouTube".into(),
@@ -116,6 +140,7 @@ pub fn defaults() -> Vec<Action> {
             browser: None,
             hint: None,
             group: None,
+            steps: None,
         },
         Action {
             name: "Google".into(),
@@ -124,14 +149,56 @@ pub fn defaults() -> Vec<Action> {
             browser: None,
             hint: None,
             group: None,
+            steps: None,
         },
     ]
 }
 
+/// Parse one sequence step: kind must be a runnable leaf (url/command/app/
+/// file/folder — never `sequence`), value must be present. Empty values are
+/// kept here (the editor flags them) but dropped by `sanitize` and skipped
+/// at execution time.
+fn parse_sequence_step(item: &serde_json::Value) -> Option<SequenceStep> {
+    let obj = item.as_object()?;
+    let kind = match obj.get("kind").and_then(|v| v.as_str()) {
+        Some("url") => ActionKind::Url,
+        Some("command") => ActionKind::Command,
+        Some("app") => ActionKind::App,
+        Some("file") => ActionKind::File,
+        Some("folder") => ActionKind::Folder,
+        // No nesting: a hand-edited `sequence` inside `steps` is ignored.
+        _ => return None,
+    };
+    let value = obj.get("value").and_then(|v| v.as_str())?;
+    Some(SequenceStep {
+        kind,
+        value: value.to_string(),
+        browser: obj.get("browser").and_then(|v| v.as_str()).map(str::to_string),
+    })
+}
+
+/// Parse the `steps` array of a sequence action: keep valid leaf steps in
+/// order, capped at MAX_SEQUENCE_STEPS.
+fn parse_sequence_steps(root: &serde_json::Map<String, serde_json::Value>) -> Vec<SequenceStep> {
+    let mut out = Vec::new();
+    if let Some(list) = root.get("steps").and_then(|v| v.as_array()) {
+        for item in list {
+            if out.len() >= MAX_SEQUENCE_STEPS {
+                break;
+            }
+            if let Some(step) = parse_sequence_step(item) {
+                out.push(step);
+            }
+        }
+    }
+    out
+}
+
 /// Parse config text. Errors (parse failure or no `actions` array) return
 /// `Err`; the caller falls back to defaults. Items missing
-/// `name`/`kind`/`value` or with an unknown `kind` are skipped; groups with
-/// a missing/blank id, name, or an invalid color are skipped too.
+/// `name`/`kind` (or `value` for non-sequence kinds) or with an unknown
+/// `kind` are skipped; a `sequence` with no valid `steps` is skipped too;
+/// groups with a missing/blank id, name, or an invalid color are skipped too.
 pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
     let root: serde_json::Value =
         serde_json::from_str(text).map_err(|_| ConfigError::Parse)?;
@@ -144,10 +211,7 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
         let Some(obj) = item.as_object() else {
             continue;
         };
-        let (Some(name), Some(value)) = (
-            obj.get("name").and_then(|v| v.as_str()),
-            obj.get("value").and_then(|v| v.as_str()),
-        ) else {
+        let Some(name) = obj.get("name").and_then(|v| v.as_str()) else {
             continue;
         };
         if name.trim().is_empty() {
@@ -159,7 +223,29 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
             Some("app") => ActionKind::App,
             Some("file") => ActionKind::File,
             Some("folder") => ActionKind::Folder,
+            Some("sequence") => ActionKind::Sequence,
             _ => continue,
+        };
+        if kind == ActionKind::Sequence {
+            let steps = parse_sequence_steps(obj);
+            if steps.is_empty() {
+                continue;
+            }
+            out.push(Action {
+                name: name.to_string(),
+                kind,
+                // `value` is unused for sequences: normalize to "" so old
+                // readers (and the TS model) keep a stable string field.
+                value: String::new(),
+                browser: None,
+                hint: obj.get("hint").and_then(|v| v.as_str()).map(str::to_string),
+                group: obj.get("group").and_then(|v| v.as_str()).map(str::to_string),
+                steps: Some(steps),
+            });
+            continue;
+        }
+        let Some(value) = obj.get("value").and_then(|v| v.as_str()) else {
+            continue;
         };
         out.push(Action {
             name: name.to_string(),
@@ -168,6 +254,7 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
             browser: obj.get("browser").and_then(|v| v.as_str()).map(str::to_string),
             hint: obj.get("hint").and_then(|v| v.as_str()).map(str::to_string),
             group: obj.get("group").and_then(|v| v.as_str()).map(str::to_string),
+            steps: None,
         });
     }
     let mut groups = Vec::new();
@@ -219,15 +306,57 @@ pub fn load_from(path: &Path) -> Config {
 }
 
 /// Lenient validation mirroring `parse_config`: empty names/values are
-/// dropped. `browser`/`hint`/`group` are kept as-is when present.
+/// dropped (sequences need a name plus at least one non-empty leaf step and
+/// are capped at MAX_SEQUENCE_STEPS; nesting is dropped).
+/// `browser`/`hint`/`group` are kept as-is when present.
 pub fn sanitize(actions: Vec<Action>) -> Vec<Action> {
     let mut out = Vec::with_capacity(actions.len());
     for mut a in actions {
         a.name = a.name.trim().to_string();
-        a.value = a.value.trim().to_string();
-        if a.name.is_empty() || a.value.is_empty() {
+        if a.name.is_empty() {
             continue;
         }
+        if a.kind == ActionKind::Sequence {
+            let mut steps: Vec<SequenceStep> = a
+                .steps
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| s.kind != ActionKind::Sequence)
+                .map(|mut s| {
+                    s.value = s.value.trim().to_string();
+                    if let Some(b) = s.browser.take() {
+                        let b = b.trim().to_string();
+                        // Keep the per-URL browser override; drop blanks and
+                        // overrides on non-URL steps where it makes no sense.
+                        if s.kind == ActionKind::Url && !b.is_empty() {
+                            s.browser = Some(b);
+                        }
+                    }
+                    s
+                })
+                .filter(|s| !s.value.is_empty())
+                .take(MAX_SEQUENCE_STEPS)
+                .collect();
+            if steps.is_empty() {
+                continue;
+            }
+            // Defensive: `take` already caps, but never trust a hand-edit.
+            steps.truncate(MAX_SEQUENCE_STEPS);
+            a.value = String::new();
+            a.browser = None;
+            a.steps = Some(steps);
+            match &a.group {
+                Some(g) if g.trim().is_empty() => a.group = None,
+                _ => {}
+            }
+            out.push(a);
+            continue;
+        }
+        a.value = a.value.trim().to_string();
+        if a.value.is_empty() {
+            continue;
+        }
+        a.steps = None;
         match &a.group {
             Some(g) if g.trim().is_empty() => a.group = None,
             _ => {}
@@ -404,6 +533,7 @@ mod tests {
                 browser: None,
                 hint: None,
                 group: None,
+                steps: None,
             }],
             groups: Vec::new(),
             language: None,
@@ -516,6 +646,7 @@ mod tests {
             browser: None,
             hint: None,
             group: None,
+            steps: None,
         }
     }
 
@@ -668,6 +799,7 @@ mod tests {
                     browser: None,
                     hint: None,
                     group: Some("work".into()),
+                    steps: None,
                 },
             ],
             groups: vec![group("work", "Work", "#5e9eff")],
@@ -680,6 +812,136 @@ mod tests {
         assert!(text.contains("\"groups\""));
         assert!(text.contains("\"group\": \"work\""));
         assert_eq!(load_from(&path), config);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn seq_step(kind: ActionKind, value: &str) -> SequenceStep {
+        SequenceStep {
+            kind,
+            value: value.into(),
+            browser: None,
+        }
+    }
+
+    #[test]
+    fn sequence_is_parsed_with_its_steps_in_order() {
+        let text = r#"{
+            "actions": [
+                { "name": "Morning", "kind": "sequence", "steps": [
+                    { "kind": "folder", "value": "/tmp/Projects" },
+                    { "kind": "url", "value": "https://example.com", "browser": "/usr/bin/firefox" }
+                ] }
+            ]
+        }"#;
+        let actions = parse_config(text).unwrap().actions;
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].kind, ActionKind::Sequence);
+        assert_eq!(actions[0].value, "");
+        let steps = actions[0].steps.as_ref().unwrap();
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0], seq_step(ActionKind::Folder, "/tmp/Projects"));
+        assert_eq!(steps[1].kind, ActionKind::Url);
+        assert_eq!(steps[1].value, "https://example.com");
+        assert_eq!(steps[1].browser.as_deref(), Some("/usr/bin/firefox"));
+    }
+
+    #[test]
+    fn sequence_without_valid_steps_is_skipped() {
+        for text in [
+            r#"{"actions":[{"name":"Empty","kind":"sequence","steps":[]}]}"#,
+            r#"{"actions":[{"name":"NoSteps","kind":"sequence"}]}"#,
+            r#"{"actions":[{"name":"NestedOnly","kind":"sequence","steps":[{"kind":"sequence","value":"x"}]}]}"#,
+        ] {
+            let config = parse_config(text).unwrap();
+            assert!(config.actions.is_empty(), "{text}");
+        }
+    }
+
+    #[test]
+    fn sequence_steps_are_capped_at_five_and_nesting_dropped() {
+        let items: Vec<String> = (0..8)
+            .map(|i| format!(r#"{{"kind":"url","value":"https://example.com/{i}"}}"#))
+            .collect();
+        let text = format!(
+            r#"{{"actions":[{{"name":"Big","kind":"sequence","steps":[{}]}}]}}"#,
+            items.join(",")
+        );
+        let steps = parse_config(&text).unwrap().actions[0]
+            .steps
+            .clone()
+            .unwrap();
+        assert_eq!(steps.len(), MAX_SEQUENCE_STEPS);
+    }
+
+    #[test]
+    fn sanitize_sequence_trims_drops_empty_caps_and_normalizes() {
+        let a = Action {
+            name: "  Morning  ".into(),
+            kind: ActionKind::Sequence,
+            value: "should-be-cleared".into(),
+            browser: Some("/bin/x".into()),
+            hint: None,
+            group: Some("  ".into()),
+            steps: Some(vec![
+                seq_step(ActionKind::Url, "  https://a.dev  "),
+                seq_step(ActionKind::Sequence, "nested"),
+                seq_step(ActionKind::Command, "   "),
+                seq_step(ActionKind::File, "/tmp/a.txt"),
+                seq_step(ActionKind::Folder, "/tmp/b"),
+                seq_step(ActionKind::Url, "https://c.dev"),
+                seq_step(ActionKind::Url, "https://d.dev"),
+            ]),
+        };
+        let cleaned = sanitize(vec![a]);
+        assert_eq!(cleaned.len(), 1);
+        assert_eq!(cleaned[0].name, "Morning");
+        assert_eq!(cleaned[0].value, "");
+        assert_eq!(cleaned[0].browser, None);
+        assert_eq!(cleaned[0].group, None);
+        let steps = cleaned[0].steps.as_ref().unwrap();
+        assert_eq!(steps.len(), MAX_SEQUENCE_STEPS);
+        assert_eq!(steps[0].value, "https://a.dev");
+        assert_eq!(steps[1].value, "/tmp/a.txt");
+    }
+
+    #[test]
+    fn sanitize_drops_sequences_without_runnable_steps() {
+        let a = Action {
+            name: "Bad".into(),
+            kind: ActionKind::Sequence,
+            value: String::new(),
+            browser: None,
+            hint: None,
+            group: None,
+            steps: Some(vec![seq_step(ActionKind::Url, "   ")]),
+        };
+        assert!(sanitize(vec![a]).is_empty());
+    }
+
+    #[test]
+    fn sequence_round_trips_through_save_and_load() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("quickspot-save-seq-{}.json", std::process::id()));
+        let original = Config {
+            actions: vec![Action {
+                name: "Morning".into(),
+                kind: ActionKind::Sequence,
+                value: String::new(),
+                browser: None,
+                hint: None,
+                group: Some("work".into()),
+                steps: Some(vec![
+                    seq_step(ActionKind::Folder, "/tmp/Projects"),
+                    seq_step(ActionKind::Url, "https://example.com"),
+                ]),
+            }],
+            groups: vec![group("work", "Work", "#5e9eff")],
+            language: None,
+            magnify: true,
+            show_icons: true,
+        };
+        save_to(&path, &original).unwrap();
+        assert_eq!(load_from(&path), original);
         let _ = std::fs::remove_file(&path);
     }
 }
