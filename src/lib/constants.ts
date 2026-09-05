@@ -1,4 +1,5 @@
-/** Canvas geometry (logical px). Window is 520x580, disc is centered. */
+/** Launcher canvas geometry (logical px). Canvas is 520x580 centered in the
+ * 680x740 OS window, disc is centered in the canvas. */
 export const CANVAS_W = 520;
 export const CANVAS_H = 580;
 

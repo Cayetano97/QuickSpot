@@ -290,7 +290,9 @@ settingsUpdateBtn.addEventListener("click", () => {
 });
 
 function syncUiScale(): void {
-  uiScale = Math.max(0.5, Math.min(1, window.innerWidth / 520, window.innerHeight / 580));
+  // Scale against the OS window (680x740): the launcher canvas stays 520x580
+  // centered inside it, so the whole overlay shrinks as one on small screens.
+  uiScale = Math.max(0.5, Math.min(1, window.innerWidth / 680, window.innerHeight / 740));
   root.style.setProperty("--overlay-scale", String(uiScale));
 }
 
@@ -1082,7 +1084,13 @@ function rebuildActionsRows(): void {
   addLabel.textContent = t(currentLanguage, "addAction");
   add.append(addIcon, addLabel);
 
-  block.append(header, list, add);
+  // Toolbar (sticky): header + "Add action" on top so creating is always
+  // visible without scrolling (NN/g visibility, Fitts: less travel).
+  // The list scrolls underneath.
+  const toolbar = document.createElement("div");
+  toolbar.className = "settings-actions-toolbar";
+  toolbar.append(header, add);
+  block.append(toolbar, list);
   actionsAdd = add;
 
   group.addEventListener("click", () => {
@@ -1091,9 +1099,12 @@ function rebuildActionsRows(): void {
   });
 
   add.addEventListener("click", () => {
+    // New cards are born at the top, right under the creation toolbar that
+    // spawned them — no scroll-down to find what you just created.
     const row = buildSettingsRow({ name: "", kind: "url", value: "" });
-    list.appendChild(row);
+    list.prepend(row);
     afterActionsChanged();
+    actionsRows.scrollTop = 0;
     row.querySelector<HTMLInputElement>(".s-name")?.focus();
   });
 
@@ -2126,10 +2137,19 @@ function buildKindPicker(kind: Action["kind"]): HTMLElement {
     listbox.focus();
   };
   const choose = (option: HTMLElement): void => {
-    trigger.dataset.value = option.dataset.value ?? "url";
+    const next = option.dataset.value ?? "url";
+    const prev = trigger.dataset.value ?? "url";
+    // Re-selecting the active kind is a no-op: it must not wipe the value.
+    if (next === prev) {
+      close(true);
+      return;
+    }
+    trigger.dataset.value = next;
     render();
     close(true);
-    trigger.dispatchEvent(new CustomEvent("kindchange", { bubbles: true }));
+    trigger.dispatchEvent(
+      new CustomEvent("kindchange", { bubbles: true, detail: { previousKind: prev } }),
+    );
   };
   trigger.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -2358,9 +2378,19 @@ function buildSettingsRow(a: Action): HTMLElement {
     row.classList.toggle("kind-folder", k === "folder");
   };
 
-  // Selecting a kind keeps the group's roving tabindex on the chosen radio
-  // and restyles the segments; the radios move natively with the arrows.
+  // A real kind change invalidates the value: a URL, a shell command and an
+  // app/file/folder path are incompatible, so keeping the old text would
+  // offer stale data that fails or — worse — runs something unintended. The
+  // name is the user's own label and is kept, as is the group assignment
+  // (orthogonal categorization). The legacy per-URL browser is tied to the
+  // old value, so it is dropped too.
   kindPicker.addEventListener("kindchange", () => {
+    if (value.value !== "") {
+      value.value = "";
+      row.classList.remove("invalid");
+    }
+    row.dataset.browser = "";
+    closeAppPickers();
     syncKind();
   });
 

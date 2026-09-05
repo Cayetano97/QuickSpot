@@ -84,12 +84,16 @@ button {
 /* ---------------------------------------------------------------- overlay */
 
 #overlay {
+  /* Launcher canvas stays 520x580; the OS window is 680x740, so the canvas
+     is centered and the larger actions panel (620x680) can overflow it
+     symmetrically without clipping its shadow. */
   position: fixed;
-  inset: 0;
+  left: 50%;
+  top: 50%;
   width: 520px;
   height: 580px;
-  transform: scale(var(--overlay-scale, 1));
-  transform-origin: top left;
+  transform: translate(-50%, -50%) scale(var(--overlay-scale, 1));
+  transform-origin: center;
   visibility: hidden;
 }
 
@@ -646,6 +650,8 @@ button {
   top: 50%;
   width: 500px;
   height: 560px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
   border-radius: 20px;
   /* Flat, like the disc: the panels earn elevation from the drop shadow
      alone, never from gradients or inset highlights. */
@@ -669,6 +675,15 @@ button {
 #settings {
   width: min(400px, calc(100vw - 24px));
   height: auto;
+}
+
+/* Actions editor: comfortably larger than before (500x560 -> 620x680) so
+   cards breathe and more rows fit without scrolling. Centered in the 520px
+   launcher canvas it overflows symmetrically into the 680x740 window, which
+   leaves ~30px per side for the drop shadow. */
+#actions {
+  width: min(620px, calc(100vw - 24px));
+  height: min(680px, calc(100vh - 24px));
 }
 
 #settings.open,
@@ -1217,11 +1232,13 @@ label.settings-list-row {
   min-width: 0;
 }
 
-/* Per-row actions: move up and move down stacked on the right; the delete
-   button rides the end of the value line. */
+/* Per-row actions: move up and move down stacked on the right, stretching to
+   the full card height (each fills half the rail); the delete button rides
+   the end of the value line. */
 .settings-row .s-rail {
   grid-column: 2;
   grid-row: 1 / span 2;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1229,10 +1246,13 @@ label.settings-list-row {
 }
 
 .settings-row .s-order-controls {
+  flex: 1 1 auto;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  min-height: 0;
 }
 
 .settings-row .s-rail button {
@@ -1245,6 +1265,16 @@ label.settings-list-row {
   justify-content: center;
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease,
     opacity var(--duration-fast) ease;
+}
+
+/* The reorder buttons grow with the card instead of staying fixed 34px
+   squares: same width as every other icon button, height split evenly. */
+.settings-row .s-order-controls button {
+  flex: 1 1 0;
+  width: var(--editor-icon-size);
+  min-width: var(--editor-icon-size);
+  height: auto;
+  min-height: var(--editor-icon-size);
 }
 
 .settings-row .s-rail svg {
@@ -2004,6 +2034,23 @@ label.settings-list-row {
   gap: 12px;
 }
 
+/* Sticky creation toolbar: header + "Add action" stay pinned to the top of
+   the scrollport while the list scrolls underneath (covers #actions-rows'
+   own padding so no rows bleed through). Primary creation stays visible
+   without scrolling, per NN/g + Apple HIG toolbar guidance. */
+.settings-actions-toolbar {
+  position: sticky;
+  top: -18px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: -18px -20px 0;
+  padding: 18px 20px 12px;
+  background: #171718;
+  border-bottom: 1px solid var(--hairline);
+}
+
 .settings-actions-header {
   display: flex;
   align-items: center;
@@ -2063,7 +2110,10 @@ label.settings-list-row {
   gap: 10px;
 }
 
-/* Add action: a full-width dashed row that doubles as the empty state. */
+/* Add action: full-width dashed creation row pinned at the top of the list
+   (inside the sticky toolbar). Dashed = "drop a new one here"; same 44px
+   touch target, radius and type scale as the cards below so it reads as
+   part of the same family, only emphasized by position. */
 #actions-add {
   width: 100%;
   min-height: 44px;
@@ -2296,6 +2346,12 @@ label.settings-list-row {
     margin-right: 14px;
   }
 
+  .settings-actions-toolbar {
+    top: -16px;
+    margin: -16px -14px 0;
+    padding: 16px 14px 12px;
+  }
+
   /* Narrow windows: the card stacks into full-width lines, with the type
      and the per-row actions sharing a line under the name. */
   .settings-row {
@@ -2316,11 +2372,21 @@ label.settings-list-row {
   .settings-row .s-rail {
     flex-direction: row;
     justify-content: flex-start;
+    align-items: center;
     gap: 4px;
   }
 
   .settings-row .s-order-controls {
+    flex: none;
     flex-direction: row;
+    align-items: center;
+  }
+
+  /* Row mode: back to fixed squares, no vertical stretch. */
+  .settings-row .s-order-controls button {
+    flex: none;
+    width: var(--editor-icon-size);
+    height: var(--editor-icon-size);
   }
 
   .settings-row .s-value-row {

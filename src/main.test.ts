@@ -695,8 +695,9 @@ describe("actions panel", () => {
       "true",
     );
 
+    // The freshly added (empty, invalid) row is prepended at the top.
     const deletes = document.querySelectorAll<HTMLButtonElement>(".s-del");
-    deletes[deletes.length - 1].click();
+    deletes[0].click();
     document.querySelector<HTMLButtonElement>(".g-add")!.click();
     document.querySelector<HTMLButtonElement>("#actions-save")!.click();
     expect(document.querySelector<HTMLButtonElement>("#groups-tab")!.getAttribute("aria-selected")).toBe(
@@ -789,6 +790,20 @@ describe("actions panel", () => {
     expect(document.querySelector<HTMLButtonElement>("#actions-add")).not.toBeNull();
     document.querySelector<HTMLButtonElement>("#actions-add")!.click();
     expect(document.querySelector(".settings-actions-count")!.textContent).toBe("1");
+  });
+
+  it("prepends a new empty action at the top of the list", async () => {
+    await mount({ actions: [{ name: "Code", kind: "app", value: "/Applications/Code.app" }] });
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-add")!.click();
+    const names = [...document.querySelectorAll<HTMLInputElement>(".settings-row .s-name")].map(
+      (el) => el.value,
+    );
+    expect(names).toEqual(["", "Code"]);
+    expect(document.activeElement).toBe(
+      document.querySelector(".settings-row .s-name"),
+    );
   });
 
   it("keeps the browser field out of URL rows and orders value, browse, group", async () => {
@@ -997,6 +1012,27 @@ describe("actions panel", () => {
     expect(fileBrowse.hidden).toBe(false);
     expect(document.querySelector<HTMLInputElement>(".s-value")!.placeholder).toBe(
       "file path",
+    );
+  });
+
+  it("switching kind clears the stale value but keeps the name", async () => {
+    await mount({ actions: [{ name: "Code", kind: "app", value: "/Applications/Code.app" }] });
+    await openOverlay();
+    openActions();
+    const file = document.querySelector<HTMLButtonElement>('.s-kind-option[data-value="file"]')!;
+    file.click();
+    expect(document.querySelector<HTMLInputElement>(".s-value")!.value).toBe("");
+    expect(document.querySelector<HTMLInputElement>(".s-name")!.value).toBe("Code");
+  });
+
+  it("re-selecting the same kind keeps the value", async () => {
+    await mount({ actions: [{ name: "Code", kind: "app", value: "/Applications/Code.app" }] });
+    await openOverlay();
+    openActions();
+    const app = document.querySelector<HTMLButtonElement>('.s-kind-option[data-value="app"]')!;
+    app.click();
+    expect(document.querySelector<HTMLInputElement>(".s-value")!.value).toBe(
+      "/Applications/Code.app",
     );
   });
 

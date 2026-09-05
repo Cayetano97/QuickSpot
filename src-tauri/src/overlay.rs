@@ -101,7 +101,7 @@ pub fn ensure_window(app: &AppHandle) -> Option<WebviewWindow> {
 fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("index.html".into()))
         .title("QuickSpot")
-        .inner_size(520.0, 580.0)
+        .inner_size(680.0, 740.0)
         .resizable(false)
         .maximizable(false)
         .decorations(false)
