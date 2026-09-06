@@ -98,12 +98,11 @@ jobs:
           releaseBody: |
             ### Highlights
 
-            - **File and folder actions** — two new action kinds: open any file with its OS default handler or jump straight into a folder in the file manager. The actions panel adds native file and folder pickers, so you never have to type paths by hand.
-            - **"+N more" match counter** — when your query matches more actions than fit on the disc, the overlay now tells you exactly how many more are hidden.
-            - **Version in Settings** — the settings panel now shows the running app version, localized into your language.
-            - **Refreshed settings & search input** — a cleaner settings layout and a real, accessible search box with proper focus handling, labelling and screen-reader announcements.
-            - **Chips never overflow the disc** — hover scaling is now clamped so even the largest chips always stay inside the ring.
-            - **Updated toolchain** — TypeScript 7, Vite 8, Vitest 4 and Tauri 2.11 under the hood.
+            - **Sequence actions** — a sixth action kind that runs up to 5 steps in order (URL, command, app, file or folder — no nesting). Pick `Sequence` as the type and give each step its own type and value with the same pickers as single actions; steps run best-effort without delay and the overlay always closes.
+            - **Roomier actions editor** — the panel grows from 500x560 to 620x680, the header plus "Add action" stay pinned in a sticky toolbar, and new cards are born at the top so you never scroll to find what you just created.
+            - **Safer kind switching** — changing an action's type now clears the stale value (a URL, a shell command and a file path are incompatible), keeping only your label and group. Re-selecting the same kind is a no-op and never wipes anything.
+            - **Bigger overlay window, same disc** — the OS window grows from 520x580 to 680x740 with the 520x580 launcher canvas centered inside, so the larger editor no longer clips its shadow; scaling now tracks the window size and panels are clamped to the viewport on small screens.
+            - **Full-height reorder rail** — the Up/Down buttons stretch with each card instead of staying fixed squares, and a hand-edited config with blank or nested sequence steps is sanitized the same way in Rust and TypeScript.
           # Published (not draft): the in-app updater polls the
           # `releases/latest` endpoint, which only sees published releases.
           releaseDraft: false
