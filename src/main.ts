@@ -7,6 +7,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
   ADD_X,
+  CANVAS_H,
+  CANVAS_W,
   CENTER_X,
   CHIP_H,
   CHIP_W,
@@ -68,8 +70,9 @@ let selected = 0;
  * over a chip; a keyboard-owned one survives until the cursor takes over. */
 let selectionSource: "mouse" | "keyboard" | "none" = "none";
 let queryText = "";
-let mouseX = 0;
-let mouseY = 0;
+/** Cursor in canvas-logical coords; far off-canvas until the first pointermove. */
+let mouseX = -10000;
+let mouseY = -10000;
 
 let savedLanguage: StoredLanguage = "system";
 let langDraft: StoredLanguage | null = null;
@@ -920,9 +923,32 @@ function chipAtPointer(): number {
   return -1;
 }
 
+/**
+ * Map a PointerEvent's viewport coordinates (`clientX`/`clientY`) to the
+ * launcher canvas' logical coordinates (0..CANVAS_W, 0..CANVAS_H) where
+ * `chipCenter()` lives.
+ *
+ * `clientX/Y` are viewport-relative (MDN: MouseEvent.clientX) while the
+ * 520x580 `#overlay` canvas is centered inside the larger 680x740 OS window
+ * and additionally scaled via `transform: scale(var(--overlay-scale))`.
+ * `getBoundingClientRect()` returns the element's border box in the same
+ * viewport space *including* transforms (MDN:
+ * Element.getBoundingClientRect), so subtracting its origin and un-scaling
+ * by `CANVAS / rect` yields the logical point under the cursor regardless
+ * of centering offset or `uiScale`.
+ */
+function toCanvasCoords(clientX: number, clientY: number): [number, number] {
+  const rect = root.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return [-10000, -10000];
+  const x = (clientX - rect.left) * (CANVAS_W / rect.width);
+  const y = (clientY - rect.top) * (CANVAS_H / rect.height);
+  return [x, y];
+}
+
 root.addEventListener("pointermove", (e) => {
-  mouseX = e.clientX / uiScale;
-  mouseY = e.clientY / uiScale;
+  const [lx, ly] = toCanvasCoords(e.clientX, e.clientY);
+  mouseX = lx;
+  mouseY = ly;
   // Hover selects (Spotlight-style): the highlight follows the cursor so the
   // first chip stops being permanently highlighted once the user points
   // anywhere else. Keyboard navigation keeps working via `selected`.
@@ -947,20 +973,16 @@ root.addEventListener("pointermove", (e) => {
       applyChipTransforms();
     }
   }
-  const localX = e.clientX / uiScale;
-  const localY = e.clientY / uiScale;
   const onGrip =
-    Math.abs(localX - CENTER_X) <= GRIP_W / 2 &&
-    localY >= GRIP_Y &&
-    localY <= GRIP_Y + GRIP_H;
+    Math.abs(lx - CENTER_X) <= GRIP_W / 2 && ly >= GRIP_Y && ly <= GRIP_Y + GRIP_H;
   grip.classList.toggle("hover", onGrip);
 });
 
 // Leave the window -> drop the magnification back to rest and release a
 // mouse-driven highlight, so no chip stays "hovered" with the cursor gone.
 root.addEventListener("pointerleave", () => {
-  mouseX = -1;
-  mouseY = -1;
+  mouseX = -10000;
+  mouseY = -10000;
   if (overlay.phase === "visible") {
     if (selectionSource !== "keyboard" && selected >= 0) {
       selectionSource = "none";
