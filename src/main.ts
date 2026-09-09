@@ -41,6 +41,13 @@ import {
   type StoredLanguage,
 } from "./lib/i18n";
 import {
+  normalizeTheme,
+  resolveTheme,
+  systemPrefersDark,
+  themeColorFor,
+  type StoredTheme,
+} from "./lib/theme";
+import {
   capUtf8Bytes,
   countMatches,
   filterActions,
@@ -80,6 +87,12 @@ let currentLanguage: Language = resolveLanguage(savedLanguage);
 let magnifyEnabled = true;
 let iconsEnabled = true;
 let autostartAtOpen = false;
+/** Stored appearance: `system` follows the OS (claro -> claro, oscuro ->
+ * oscuro), `light`/`dark`/`deep` pin the variant (`deep` is always an
+ * explicit OLED opt-in). Draft mirrors the language pattern: the select
+ * edits the draft, Save persists it. */
+let savedTheme: StoredTheme = "system";
+let themeDraft: StoredTheme | null = null;
 /** Runtime app version (tauri.conf.json), resolved asynchronously. */
 let appVersion = "";
 
@@ -115,9 +128,12 @@ const settingsUpdateLabel = document.querySelector<HTMLElement>("#settings-updat
 const settingsUpdateBtn = document.querySelector<HTMLButtonElement>("#settings-update-check")!;
 const settingsVersion = document.querySelector<HTMLElement>("#settings-version")!;
 const langSelect = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+const settingsThemeLabel = document.querySelector<HTMLElement>("#settings-theme-label")!;
+const themeSelect = document.querySelector<HTMLSelectElement>("#settings-theme")!;
 const settingsError = document.querySelector<HTMLElement>("#settings-error")!;
 const settingsSave = document.querySelector<HTMLButtonElement>("#settings-save")!;
 populateLanguages();
+populateThemeOptions();
 
 const actionsPanel = document.querySelector<HTMLElement>("#actions")!;
 const actionsTitle = document.querySelector<HTMLElement>("#actions-title")!;
@@ -405,6 +421,7 @@ function syncEmptyState(): void {
 function applyLanguage(): void {
   currentLanguage = resolveLanguage(langDraft ?? savedLanguage);
   localizeAll();
+  applyTheme();
 }
 
 /** Fill the language select once: "System default" + one entry per locale,
@@ -419,6 +436,39 @@ function populateLanguages(): void {
     option.value = lang.code;
     option.textContent = lang.label;
     langSelect.appendChild(option);
+  }
+}
+
+/** Fill the theme select once: System + light/dark/deep. Labels are
+ * localized on every `localizeAll` (option order is the contract). */
+function populateThemeOptions(): void {
+  themeSelect.replaceChildren();
+  for (const value of ["system", "light", "dark", "deep"] as const) {
+    const option = document.createElement("option");
+    option.value = value;
+    themeSelect.appendChild(option);
+  }
+}
+
+/** Effective theme -> `data-theme` on <html> + matching theme-color meta. */
+function applyTheme(): void {
+  const effective = resolveTheme(themeDraft ?? savedTheme, systemPrefersDark());
+  document.documentElement.dataset.theme = effective;
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (meta) meta.content = themeColorFor(effective);
+}
+
+/** Localized labels for the appearance row. */
+function localizeThemeOptions(): void {
+  const L = currentLanguage;
+  const labels: Record<string, string> = {
+    system: t(L, "themeSystem"),
+    light: t(L, "themeLight"),
+    dark: t(L, "themeDark"),
+    deep: t(L, "themeDeep"),
+  };
+  for (const option of Array.from(themeSelect.options)) {
+    option.textContent = labels[option.value] ?? option.value;
   }
 }
 
@@ -456,6 +506,9 @@ function localizeAll(): void {
   settingsPanel.setAttribute("aria-label", t(L, "settingsTitle"));
   settingsClose.setAttribute("aria-label", t(L, "close"));
   settingsLanguageLabel.textContent = t(L, "languageLabel");
+  settingsThemeLabel.textContent = t(L, "appearanceLabel");
+  themeSelect.setAttribute("aria-label", t(L, "appearanceLabel"));
+  localizeThemeOptions();
   settingsDockLabel.textContent = t(L, "magnifyLabel");
   settingsMagnify.setAttribute("aria-label", t(L, "magnifyLabel"));
   settingsIconsLabel.textContent = t(L, "iconsLabel");
@@ -857,6 +910,29 @@ langSelect.addEventListener("change", () => {
   applyLanguage();
 });
 
+themeSelect.addEventListener("change", () => {
+  themeDraft = normalizeTheme(themeSelect.value);
+  applyTheme();
+});
+
+// Sistema: si el SO cambia claro<->oscuro y el usuario sigue "Sistema",
+// el efectivo (claro<->oscuro) cambia en vivo, como Auto en Apple HIG.
+// `deep` nunca entra por sistema: es opt-in explícito.
+if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSystemTheme = (): void => {
+    if ((themeDraft ?? savedTheme) === "system") applyTheme();
+  };
+  if (typeof darkQuery.addEventListener === "function") {
+    darkQuery.addEventListener("change", onSystemTheme);
+  } else {
+    darkQuery.addListener?.(onSystemTheme);
+  }
+}
+
+// Aplica el tema lo antes posible para evitar flash del tema contrario.
+applyTheme();
+
 document.addEventListener("keydown", (e) => {
   if (!settingsOpen && !actionsOpen) return;
   if (e.key === "Escape") {
@@ -1022,6 +1098,7 @@ function openSettings(): void {
   settingsError.classList.remove("visible");
   settingsSave.disabled = false;
   langSelect.value = langDraft ?? savedLanguage;
+  themeSelect.value = themeDraft ?? savedTheme;
   settingsMagnify.checked = magnifyEnabled;
   settingsIcons.checked = iconsEnabled;
   settingsAutostart.checked = autostartAtOpen;
@@ -1085,6 +1162,7 @@ function closeSettings(): void {
   if (!settingsOpen) return;
   settingsOpen = false;
   langDraft = null;
+  themeDraft = null;
   applyLanguage();
   settingsPanel.classList.remove("open");
   settingsPanel.setAttribute("aria-hidden", "true");
@@ -2965,6 +3043,7 @@ function collectSettingsActions(): Action[] {
 
 async function saveSettings(): Promise<void> {
   const language = langDraft ?? savedLanguage;
+  const theme = themeDraft ?? savedTheme;
   settingsError.textContent = "";
   settingsError.classList.remove("visible");
   settingsSave.disabled = true;
@@ -2980,6 +3059,7 @@ async function saveSettings(): Promise<void> {
       language: language === "system" ? null : language,
       magnify: settingsMagnify.checked,
       showIcons: settingsIcons.checked,
+      theme: theme === "system" ? null : theme,
     });
     closeSettings();
   } catch (err) {
@@ -3061,6 +3141,7 @@ async function saveActions(): Promise<void> {
       language: savedLanguage === "system" ? null : savedLanguage,
       magnify: magnifyEnabled,
       showIcons: iconsEnabled,
+      theme: savedTheme === "system" ? null : savedTheme,
     });
     closeActions();
   } catch (err) {
@@ -3077,6 +3158,19 @@ interface ConfigPayload {
   language: string | null;
   magnify: boolean;
   showIcons: boolean;
+  theme?: string | null;
+}
+
+function applyConfigPayload(cfg: ConfigPayload): void {
+  actions = cfg.actions;
+  groups = cfg.groups ?? [];
+  savedLanguage = (cfg.language ?? "system") as StoredLanguage;
+  magnifyEnabled = cfg.magnify;
+  iconsEnabled = cfg.showIcons;
+  savedTheme = normalizeTheme(cfg.theme ?? "system");
+  themeDraft = null;
+  syncIcons();
+  applyLanguage();
 }
 
 async function init(): Promise<void> {
@@ -3100,26 +3194,14 @@ async function init(): Promise<void> {
       ensureLoop();
     }),
     listen<ConfigPayload>("config-reloaded", (event: { payload: ConfigPayload }) => {
-      actions = event.payload.actions;
-      groups = event.payload.groups ?? [];
-      savedLanguage = (event.payload.language ?? "system") as StoredLanguage;
-      magnifyEnabled = event.payload.magnify;
-      iconsEnabled = event.payload.showIcons;
-      syncIcons();
-      applyLanguage();
+      applyConfigPayload(event.payload);
       if (actionsOpen) rebuildActionsRows();
       else refilter();
     }),
   ]);
 
   const cfg = await invoke<ConfigPayload>("get_config");
-  actions = cfg.actions;
-  groups = cfg.groups ?? [];
-  savedLanguage = (cfg.language ?? "system") as StoredLanguage;
-  magnifyEnabled = cfg.magnify;
-  iconsEnabled = cfg.showIcons;
-  syncIcons();
-  applyLanguage();
+  applyConfigPayload(cfg);
   refilter();
 
   getVersion()

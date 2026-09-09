@@ -1,18 +1,26 @@
-:root {
-  /* Surfaces and ink track a single near-neutral gray register (never any
-     blue/violet tint): the disc is a solid near-black, chips and cards sit
-     above it, and hairlines divide them — a flat, Linear/Spotify-style stack
-     with no gradients or transparency anywhere. */
+:root,
+:root[data-theme="dark"] {
+  /* Oscuro: pila plana Linear/Spotify sobre gris casi negro (#0d0d0e).
+     Grises elevados, nunca negro puro: menos halación en salas iluminadas
+     (Material M3 #121212, Apple HIG elevated grays). Sin tintes azules. */
+  color-scheme: dark;
   --accent: #f2f2f4;
+  --accent-hover: #f2f2f2;
   --disc: #0d0d0e;
   --disc-core: #0a0a0b;
   --disc-rim: #000000;
   --ink-dim: #b7b7bb;
   --ink-muted: #9a9a9e;
-  --ink-faint: #7e7e82;
+  /* Faint roza el mínimo WCAG 1.4.3 (4.5:1): #86868c da 4.95:1 sobre el
+     panel #171718; el anterior #7e7e82 se quedaba en 4.43:1. */
+  --ink-faint: #86868c;
   --ghost-fill: #2a2a2c;
   --ghost-fill-active: #39393b;
-  --ghost-border: #68686b;
+  /* El borde fantasma delimita botones, tarjetas e inputs: #767679 da
+     >=3:1 sobre field (#29292b) y panel (WCAG 1.4.11). */
+  --ghost-border: #767679;
+  --hover-border: #9a9a9e;
+  --query-border: #767679;
   --chip-fill: #26262a;
   --chip-border: #767679;
   /* Panel surfaces shared by both dialogs: hairline dividers and quiet
@@ -22,6 +30,44 @@
   --grip-idle: #434346;
   --grip-hover: #636366;
   --grip-ink: var(--accent);
+  --grip-border: #767679;
+  --switch-off: #1d1d1f;
+  --switch-border: #767679;
+  /* Semantic panel stack (dark values; deep/light overrides below). */
+  --panel-fill: #171718;
+  --panel-border: #6e6e73;
+  --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  --toolbar-fill: #171718;
+  --tabs-fill: #242425;
+  --tab-selected-ring: rgba(229, 229, 229, 0.16);
+  --inset-fill: #222224;
+  --popover-fill: #18181b;
+  --popover-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --picker-fill: #141416;
+  --query-fill: #1b1b1d;
+  --query-fill-active: #222224;
+  --row-hover: #303032;
+  --placeholder: #909092;
+  --placeholder-quiet: #8a8a8d;
+  /* Thumbs >=3:1 sobre el panel (WCAG 1.4.11): el anterior #4b4b4d daba 2.0. */
+  --scroll-thumb: #68686a;
+  --scroll-thumb-hover: #8e8e93;
+  --scroll-thumb-small: #68686a;
+  /* Error y update como vars para que el tema claro los adapte (el rojo
+     #ff8f8f sobre blanco no llegaría a 4.5:1). */
+  --error-ink: #ff8f8f;
+  --error-border: #b34b4b;
+  --error-field-border: #943d3d;
+  --update-ink: #6db1ff;
+  --update-fill: #1a222e;
+  --update-border: #34517c;
+  --update-fill-hover: #223046;
+  --update-border-hover: #4774b8;
+  --selected-ring: rgba(242, 242, 244, 0.5);
+  --option-ring: #b7b7bb;
+  --swatch-border: #767679;
+  --dashed-border: #767679;
+  --dashed-border-hover: #939395;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 120ms;
@@ -31,6 +77,132 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   font-size: 16px;
+}
+
+/* Negro profundo: variante OLED de píxeles apagados (Raycast #07080a).
+   El disco baja a #000 puro; las superficies se hunden 1-2 pasos y los
+   bordes/hairlines toman el relevo de la sombra (en negro puro la sombra
+   no existe). Tintas faint/muted suben levemente para mantener 4.5:1
+   sobre negro (WCAG 1.4.3, Apple HIG). Blanco roto, nunca #fff (halación). */
+:root[data-theme="deep"] {
+  color-scheme: dark;
+  --accent: #f2f2f4;
+  --accent-hover: #f2f2f2;
+  --disc: #000000;
+  --disc-core: #000000;
+  --disc-rim: #000000;
+  --ink-dim: #c4c4c8;
+  --ink-muted: #a6a6ab;
+  --ink-faint: #8f8f94;
+  --ghost-fill: #17171a;
+  --ghost-fill-active: #2c2c30;
+  /* >=3:1 sobre field (#0e0e10) y panel (WCAG 1.4.11). */
+  --ghost-border: #68686b;
+  --hover-border: #a6a6ab;
+  --query-border: #68686b;
+  --chip-fill: #121214;
+  --chip-border: #68686b;
+  --hairline: #232327;
+  --field-fill: #0e0e10;
+  --grip-idle: #2c2c30;
+  --grip-hover: #4c4c52;
+  --grip-ink: var(--accent);
+  --grip-border: #68686b;
+  --panel-fill: #08080a;
+  --panel-border: #68686a;
+  --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --toolbar-fill: #08080a;
+  --tabs-fill: #101012;
+  --tab-selected-ring: rgba(229, 229, 229, 0.16);
+  --inset-fill: #0e0e10;
+  --popover-fill: #0c0c0e;
+  --popover-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --picker-fill: #08080a;
+  --query-fill: #0d0d0f;
+  --query-fill-active: #141416;
+  --row-hover: #1c1c1f;
+  --switch-off: #131315;
+  --switch-border: #767679;
+  --placeholder: #8e8e93;
+  --placeholder-quiet: #86868b;
+  --scroll-thumb: #68686a;
+  --scroll-thumb-hover: #8e8e93;
+  --scroll-thumb-small: #68686a;
+  --error-ink: #ff8f8f;
+  --error-border: #b34b4b;
+  --error-field-border: #943d3d;
+  --update-ink: #6db1ff;
+  --update-fill: #1a222e;
+  --update-border: #34517c;
+  --update-fill-hover: #223046;
+  --update-border-hover: #4774b8;
+  --selected-ring: rgba(242, 242, 244, 0.5);
+  --option-ring: #c4c4c8;
+  --swatch-border: #767679;
+  --dashed-border: #767679;
+  --dashed-border-hover: #a6a6ab;
+}
+
+/* Claro: registro luminoso para salas iluminadas (Apple systemBackground).
+   Texto principal #1b1b1e y secundarios >=4.5:1 sobre blanco (WCAG 1.4.3);
+   bordes de inputs/tarjetas/panel >=3:1 (WCAG 1.4.11). La elevación vuelve a
+   la sombra (suave, sin brillos): en claro la sombra sí existe. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --accent: #1b1b1e;
+  --accent-hover: #333338;
+  --disc: #e8e8ec;
+  --disc-core: #e8e8ec;
+  --disc-rim: #d1d1d6;
+  --ink-dim: #3f3f46;
+  --ink-muted: #51515a;
+  --ink-faint: #60606a;
+  --ghost-fill: #ffffff;
+  --ghost-fill-active: #e2e2e7;
+  --ghost-border: #6e6e73;
+  --hover-border: #51515a;
+  --query-border: #6e6e73;
+  --chip-fill: #ffffff;
+  --chip-border: #6e6e73;
+  --hairline: #d8d8de;
+  --field-fill: #f2f2f5;
+  --grip-idle: #ffffff;
+  --grip-hover: #e2e2e7;
+  --grip-ink: var(--accent);
+  --grip-border: #6e6e73;
+  --panel-fill: #ffffff;
+  --panel-border: #6e6e73;
+  --panel-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+  --toolbar-fill: #ffffff;
+  --tabs-fill: #e9e9ee;
+  --tab-selected-ring: rgba(27, 27, 30, 0.14);
+  --inset-fill: #f2f2f5;
+  --popover-fill: #ffffff;
+  --popover-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.08);
+  --picker-fill: #ffffff;
+  --query-fill: #ffffff;
+  --query-fill-active: #ffffff;
+  --row-hover: #e9e9ee;
+  --switch-off: #d9d9de;
+  --switch-border: #51515a;
+  --placeholder: #60606a;
+  --placeholder-quiet: #60606a;
+  --scroll-thumb: #8e8e93;
+  --scroll-thumb-hover: #636366;
+  --scroll-thumb-small: #8e8e93;
+  --error-ink: #b3261e;
+  --error-border: #b3261e;
+  --error-field-border: #b3261e;
+  --update-ink: #0b57d0;
+  --update-fill: #e8f0fe;
+  --update-border: #a8c7fa;
+  --update-fill-hover: #d6e4ff;
+  --update-border-hover: #7aa7f5;
+  --selected-ring: rgba(27, 27, 30, 0.25);
+  --option-ring: #51515a;
+  --swatch-border: #6e6e73;
+  --dashed-border: #6e6e73;
+  --dashed-border-hover: #51515a;
 }
 
 * {
@@ -56,7 +228,8 @@
 input,
 select,
 textarea {
-  color-scheme: dark;
+  /* Hereda color-scheme del tema (claro/oscuro): scrollbars y controles
+     nativos siguen al registro activo. */
   user-select: text;
   -webkit-user-select: text;
 }
@@ -148,7 +321,7 @@ button {
   #hub:hover,
   #add:hover {
     background: var(--ghost-fill-active);
-    border-color: #9a9a9e;
+    border-color: var(--hover-border);
   }
 }
 
@@ -164,6 +337,7 @@ button {
 #settings-save:focus-visible,
 #actions-save:focus-visible,
 #settings-lang:focus-visible,
+#settings-theme:focus-visible,
 .settings-row input:focus-visible,
 .settings-row .s-group-trigger:focus-visible,
 .settings-row .s-order-controls button:focus-visible,
@@ -227,8 +401,10 @@ button {
   align-items: center;
   justify-content: center;
   border-radius: 17px;
-  background: #1b1b1d;
-  border: 1px solid var(--hairline);
+  background: var(--query-fill);
+  /* El campo principal de búsqueda delimita con >=3:1 (WCAG 1.4.11);
+     el foco sube al acento. */
+  border: 1px solid var(--query-border);
   transition: background var(--duration-base) ease, border-color var(--duration-base) ease;
   overflow: hidden;
   pointer-events: none;
@@ -242,14 +418,14 @@ button {
 }
 
 #query-wrap.active {
-  background: #222224;
-  border-color: #58585b;
+  background: var(--query-fill-active);
+  border-color: var(--query-border);
 }
 
 /* Focus reads as a flat "halo": a hairline border that steps up to the full
    accent, no glow or shadow — quick to paint and unmistakable. */
 #overlay:has(#query:focus) #query-wrap {
-  background: #222224;
+  background: var(--query-fill-active);
   border-color: var(--accent);
 }
 
@@ -368,7 +544,7 @@ button {
 @media (hover: hover) and (pointer: fine) {
   #minimize:hover {
     background: var(--ghost-fill-active);
-    border-color: #9a9a9e;
+    border-color: var(--hover-border);
   }
 }
 
@@ -402,9 +578,9 @@ button {
   font-weight: 500;
   letter-spacing: 0.01em;
   white-space: nowrap;
-  color: #6db1ff;
-  background: #1a222e;
-  border: 1px solid #34517c;
+  color: var(--update-ink);
+  background: var(--update-fill);
+  border: 1px solid var(--update-border);
   opacity: 0;
   pointer-events: none;
   z-index: 2;
@@ -420,8 +596,8 @@ button {
 
 @media (hover: hover) and (pointer: fine) {
   #update:hover:not(:disabled) {
-    background: #223046;
-    border-color: #4774b8;
+    background: var(--update-fill-hover);
+    border-color: var(--update-border-hover);
   }
 }
 
@@ -431,8 +607,8 @@ button {
 
 #update:disabled {
   color: var(--ink-muted);
-  background: #1d1d1f;
-  border-color: #404042;
+  background: var(--switch-off);
+  border-color: var(--hairline);
   cursor: default;
 }
 
@@ -446,6 +622,7 @@ button {
   height: 24px;
   border-radius: 12px;
   background: var(--grip-idle);
+  border: 1px solid var(--grip-border);
   opacity: 0;
   display: flex;
   align-items: center;
@@ -536,13 +713,21 @@ button {
   }
 }
 
+/* En claro los iconos de grupo se oscurecen mezclando con el texto (60%):
+   toda la paleta queda >=3:1 sobre el chip blanco (el amarillo #ffd60a es el
+   peor caso con 3.34:1). La etiqueta siempre usa --accent (>=14:1), así que
+   el color nunca es la única pista (WCAG 1.4.1). */
+[data-theme="light"] .chip[data-group] {
+  color: color-mix(in srgb, var(--group-color) 60%, #1b1b1e);
+}
+
 .chip.selected {
   background: var(--ghost-fill-active);
   border-color: var(--accent);
   color: var(--accent);
   /* Flat selection: a solid inner ring, no drop shadow or glow (cheaper to
      repaint while magnifying and keeps the chip optically clean). */
-  box-shadow: inset 0 0 0 1px rgba(242, 242, 244, 0.5);
+  box-shadow: inset 0 0 0 1px var(--selected-ring);
 }
 
 .chip .chip-label {
@@ -610,7 +795,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #ff8f8f;
+  color: var(--error-ink);
   font-size: 12px;
   letter-spacing: 0.01em;
   text-align: center;
@@ -657,9 +842,9 @@ button {
   border-radius: 20px;
   /* Flat, like the disc: the panels earn elevation from the drop shadow
      alone, never from gradients or inset highlights. */
-  background: #171718;
-  border: 1px solid #4a4a4c;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  background: var(--panel-fill);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
   display: flex;
   flex-direction: column;
   opacity: 0;
@@ -752,7 +937,7 @@ button {
   padding: 4px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: #242425;
+  background: var(--tabs-fill);
 }
 
 #actions-tabs [role="tab"] {
@@ -767,7 +952,7 @@ button {
 #actions-tabs [role="tab"][aria-selected="true"] {
   color: var(--accent);
   background: var(--ghost-fill-active);
-  box-shadow: inset 0 0 0 1px rgba(229, 229, 229, 0.16);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-ring);
 }
 
 #actions-tabs [role="tab"]:focus-visible {
@@ -780,6 +965,23 @@ button {
     color: var(--accent);
     background: var(--ghost-fill);
   }
+}
+
+/* En claro la pestaña activa es una tarjeta blanca elevada (idioma iOS):
+   inconfundible sobre el riel gris sin depender solo del brillo del texto. */
+[data-theme="light"] #actions-tabs [role="tab"][aria-selected="true"] {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), inset 0 0 0 1px rgba(27, 27, 30, 0.12);
+}
+
+/* Opción activa por teclado en los listboxes (app/kind/group): además del
+   fondo, un anillo de 1px >=3:1 sobre el fondo activo (WCAG 1.4.11). El hover
+   de puntero no lo necesita (la posición del cursor ya lo indica). */
+.app-picker .ap-item.ap-active,
+.settings-row .s-kind-option.active,
+.settings-row .sg-item.sg-active {
+  outline: 1px solid var(--option-ring);
+  outline-offset: -1px;
 }
 
 /* ---------------------------------------------------------- general section */
@@ -829,8 +1031,8 @@ label.settings-list-row {
 
 @media (hover:hover) {
   .settings-list-row:hover {
-    border-color: #9a9a9e;
-    background: #303032;
+    border-color: var(--hover-border);
+    background: var(--row-hover);
   }
 }
 
@@ -876,10 +1078,11 @@ label.settings-list-row {
   text-align: center;
 }
 
-/* Compact pop-up controls hugging the row's trailing edge: the language
-   select and the update-check button share the launcher's full-pill
-   treatment (same height and radius as "Add group" / "Group actions"). */
+/* Compact pop-up controls hugging the row's trailing edge: the appearance
+   and language selects and the update-check button share the launcher's
+   full-pill treatment (same height and radius as "Add group"). */
 #settings-lang,
+#settings-theme,
 #settings-update-check {
   font: inherit;
   font-size: 12.5px;
@@ -897,7 +1100,8 @@ label.settings-list-row {
     color var(--duration-fast) ease;
 }
 
-#settings-lang {
+#settings-lang,
+#settings-theme {
   padding: 0 32px 0 14px;
   appearance: none;
   -webkit-appearance: none;
@@ -913,6 +1117,7 @@ label.settings-list-row {
 }
 
 #settings-lang:focus-visible,
+#settings-theme:focus-visible,
 #settings-update-check:focus-visible {
   border-color: var(--accent);
 }
@@ -933,15 +1138,16 @@ label.settings-list-row {
 
 @media (hover: hover) and (pointer: fine) {
   #settings-lang:hover,
+  #settings-theme:hover,
   #settings-update-check:not(:disabled):hover {
     /* background-color (not the background shorthand): the shorthand would
-       reset the language select's chevron background-image on hover. */
+       reset the selects' chevron background-image on hover. */
     background-color: var(--ghost-fill-active);
   }
 
   #settings-update-check.available:hover {
-    background: #f2f2f2;
-    border-color: #f2f2f2;
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
   }
 }
 
@@ -968,7 +1174,10 @@ label.settings-list-row {
   position: absolute;
   inset: 0;
   border-radius: 13px;
-  background: #1d1d1f;
+  background: var(--switch-off);
+  /* El riel apagado se delimita con borde >=3:1 (WCAG 1.4.11): sin borde,
+     #1d1d1f sobre el panel sería indistinguible. */
+  border: 1px solid var(--switch-border);
   pointer-events: none;
   transition: background var(--duration-fast) ease;
 }
@@ -976,8 +1185,12 @@ label.settings-list-row {
 .switch-track::after {
   content: "";
   position: absolute;
-  top: 2px;
-  left: 2px;
+  /* El offset cuenta desde DENTRO del borde (padding box): con el borde de
+     1px, top/left 1px deja el margen de diseño de 2px por los cuatro lados
+     (44-2·1-22 = 20 de recorrido libre; el checked viaja 18px y reserva 2px
+     al otro lado). Si se quita el borde, volver a 2px. */
+  top: 1px;
+  left: 1px;
   width: 22px;
   height: 22px;
   border-radius: 11px;
@@ -1019,13 +1232,13 @@ label.settings-list-row {
 
 #settings-rows::-webkit-scrollbar-thumb,
 #actions-rows::-webkit-scrollbar-thumb {
-  background: #4b4b4d;
+  background: var(--scroll-thumb);
   border-radius: 5px;
 }
 
 #settings-rows::-webkit-scrollbar-thumb:hover,
 #actions-rows::-webkit-scrollbar-thumb:hover {
-  background: #68686a;
+  background: var(--scroll-thumb-hover);
 }
 
 /* The settings instance keeps its own inset rhythm: the section title and
@@ -1161,7 +1374,7 @@ label.settings-list-row {
 }
 
 .settings-row.invalid .s-face-icon {
-  color: #d98a8a;
+  color: var(--error-ink);
 }
 
 .settings-row .s-face:focus-visible {
@@ -1172,8 +1385,8 @@ label.settings-list-row {
 
 @media (hover: hover) and (pointer: fine) {
   .settings-row:hover {
-    border-color: #9a9a9e;
-    background: #303032;
+    border-color: var(--hover-border);
+    background: var(--row-hover);
   }
 
   /* Hover mirrors the focus-within choreography above. */
@@ -1327,7 +1540,7 @@ label.settings-list-row {
 }
 
 .settings-row input::placeholder {
-  color: #909092;
+  color: var(--placeholder);
 }
 
 .settings-row .s-name {
@@ -1389,8 +1602,8 @@ label.settings-list-row {
   padding: 4px;
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
-  background: #18181b;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: var(--popover-fill);
+  box-shadow: var(--popover-shadow);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1449,7 +1662,7 @@ label.settings-list-row {
   padding: 3px;
   border: 1px solid var(--ghost-border);
   border-radius: 11px;
-  background: #262628;
+  background: var(--row-hover);
   transition: width 180ms var(--ease-standard), border-color var(--duration-fast) ease;
 }
 
@@ -1513,7 +1726,7 @@ label.settings-list-row {
 .settings-row .s-kind-opt-old.on {
   color: var(--accent);
   background: var(--ghost-fill-active);
-  box-shadow: inset 0 0 0 1px rgba(229, 229, 229, 0.16);
+  box-shadow: inset 0 0 0 1px var(--tab-selected-ring);
 }
 
 .settings-row .s-kind-opt-old input {
@@ -1546,12 +1759,12 @@ label.settings-list-row {
 }
 
 .settings-row.invalid {
-  border-color: #b34b4b;
+  border-color: var(--error-border);
 }
 
 .settings-row.invalid .s-name,
 .settings-row.invalid .s-value {
-  border-color: #943d3d;
+  border-color: var(--error-field-border);
 }
 
 /* The group popover floats outside the card geometry; while it is open the
@@ -1674,7 +1887,7 @@ label.settings-list-row {
 .settings-groups {
   border: 1px solid var(--hairline);
   border-radius: 14px;
-  background: #222224;
+  background: var(--inset-fill);
   padding: 16px 16px 18px;
   display: flex;
   flex-direction: column;
@@ -1780,11 +1993,11 @@ label.settings-list-row {
 
 .group-row .g-name::placeholder,
 .group-row .g-hex::placeholder {
-  color: #909092;
+  color: var(--placeholder);
 }
 
 .group-row.invalid {
-  border-color: #b34b4b;
+  border-color: var(--error-border);
 }
 
 .group-row .g-name {
@@ -1864,8 +2077,8 @@ label.settings-list-row {
   width: 224px;
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
-  background: #18181b;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: var(--popover-fill);
+  box-shadow: var(--popover-shadow);
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -1885,7 +2098,7 @@ label.settings-list-row {
 .group-row .gp-item {
   aspect-ratio: 1;
   border-radius: 9px;
-  border: 1px solid #4d4d50;
+  border: 1px solid var(--swatch-border);
   position: relative;
   transition: transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast) ease;
 }
@@ -1897,6 +2110,11 @@ label.settings-list-row {
 .group-row .gp-item.gp-selected {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1.5px var(--accent);
+  /* Anillo exterior sobre el fondo del picker: la selección se percibe en
+     cualquier swatch, incluso amarillos donde el check blanco no contrasta
+     (WCAG 1.4.11: el borde acento sobre el picker da >10:1). */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .group-row .gp-item.gp-selected::after {
@@ -1909,7 +2127,7 @@ label.settings-list-row {
   font-size: 15px;
   font-weight: 700;
   color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85), 0 0 3px rgba(0, 0, 0, 0.7);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1927,7 +2145,7 @@ label.settings-list-row {
 
 .group-row .g-error {
   font-size: 12px;
-  color: #ff8f8f;
+  color: var(--error-ink);
   min-height: 15px;
 }
 
@@ -1955,8 +2173,8 @@ label.settings-list-row {
   max-width: 220px;
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
-  background: #18181b;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: var(--popover-fill);
+  box-shadow: var(--popover-shadow);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -1980,7 +2198,7 @@ label.settings-list-row {
 }
 
 .settings-row .s-group-picker::-webkit-scrollbar-thumb {
-  background: #434345;
+  background: var(--scroll-thumb-small);
   border-radius: 4px;
 }
 
@@ -2053,7 +2271,7 @@ label.settings-list-row {
   gap: 12px;
   margin: -18px -20px 0;
   padding: 18px 20px 12px;
-  background: #171718;
+  background: var(--toolbar-fill);
   border-bottom: 1px solid var(--hairline);
 }
 
@@ -2079,7 +2297,7 @@ label.settings-list-row {
   font-weight: 600;
   color: var(--ink-dim);
   background: var(--field-fill);
-  border: 1px solid #3b3b3d;
+  border: 1px solid var(--hairline);
   border-radius: 10px;
   padding: 2px 8px;
   min-width: 24px;
@@ -2123,7 +2341,7 @@ label.settings-list-row {
 #actions-add {
   width: 100%;
   min-height: 44px;
-  border: 1px dashed #5c5c5e;
+  border: 1px dashed var(--dashed-border);
   border-radius: 12px;
   color: var(--ink-dim);
   font-size: 13px;
@@ -2147,18 +2365,18 @@ label.settings-list-row {
 
 #actions-add:hover {
   color: var(--accent);
-  border-color: #939395;
-  background: #262628;
+  border-color: var(--dashed-border-hover);
+  background: var(--row-hover);
 }
 
 #actions-add:active {
-  background: #303032;
+  background: var(--row-hover);
 }
 
 .app-picker {
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
-  background: #141416;
+  background: var(--picker-fill);
   overflow: hidden;
 }
 
@@ -2180,6 +2398,10 @@ label.settings-list-row {
   border-color: var(--accent);
 }
 
+.app-picker .ap-search::placeholder {
+  color: var(--placeholder);
+}
+
 .app-picker .ap-list {
   max-height: 212px;
   overflow-y: auto;
@@ -2191,7 +2413,7 @@ label.settings-list-row {
 }
 
 .app-picker .ap-list::-webkit-scrollbar-thumb {
-  background: #434345;
+  background: var(--scroll-thumb-small);
   border-radius: 4px;
 }
 
@@ -2224,7 +2446,7 @@ label.settings-list-row {
 
 .app-picker .ap-item .ap-path {
   font-size: 11.5px;
-  color: #8a8a8d;
+  color: var(--placeholder-quiet);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2233,7 +2455,7 @@ label.settings-list-row {
 .app-picker .ap-empty {
   padding: 12px 10px;
   font-size: 13px;
-  color: #8a8a8d;
+  color: var(--placeholder-quiet);
   text-align: center;
 }
 
@@ -2270,7 +2492,7 @@ label.settings-list-row {
   gap: 10px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: #222224;
+  background: var(--inset-fill);
   padding: 12px;
 }
 
@@ -2306,7 +2528,7 @@ label.settings-list-row {
   font-weight: 600;
   color: var(--ink-dim);
   background: var(--field-fill);
-  border: 1px solid #3b3b3d;
+  border: 1px solid var(--hairline);
   border-radius: 10px;
   padding: 2px 8px;
   min-width: 24px;
@@ -2421,7 +2643,7 @@ label.settings-list-row {
 
 /* Invalid steps flag only their own value (the card already flags itself). */
 .settings-row .s-step.invalid .s-step-value {
-  border-color: #943d3d;
+  border-color: var(--error-field-border);
 }
 
 /* Step app picker: full-width below the step line, in flow like the parent
@@ -2447,7 +2669,7 @@ label.settings-list-row {
 .settings-row .s-steps-add {
   width: 100%;
   min-height: 38px;
-  border: 1px dashed #5c5c5e;
+  border: 1px dashed var(--dashed-border);
   border-radius: 10px;
   color: var(--ink-dim);
   font-size: 12.5px;
@@ -2471,12 +2693,12 @@ label.settings-list-row {
 
 .settings-row .s-steps-add:hover:not(:disabled) {
   color: var(--accent);
-  border-color: #939395;
-  background: #262628;
+  border-color: var(--dashed-border-hover);
+  background: var(--row-hover);
 }
 
 .settings-row .s-steps-add:active:not(:disabled) {
-  background: #303032;
+  background: var(--row-hover);
 }
 
 .settings-row .s-steps-add:disabled {
@@ -2504,10 +2726,10 @@ label.settings-list-row {
   text-overflow: ellipsis;
 }
 
-/* Both dialogs report failures in the same red. */
+/* Both dialogs report failures in the same red (per-theme for 4.5:1). */
 #settings-error.visible,
 #actions-error:not(:empty) {
-  color: #ff6961;
+  color: var(--error-ink);
 }
 
 #settings-save,
@@ -2526,8 +2748,8 @@ label.settings-list-row {
 @media (hover: hover) and (pointer: fine) {
   #settings-save:hover,
   #actions-save:hover {
-    background: #f2f2f2;
-    border-color: #f2f2f2;
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
   }
 }
 
@@ -2763,6 +2985,7 @@ label.settings-list-row {
   .app-picker,
   #actions-add,
   #settings-lang,
+  #settings-theme,
   .settings-row .s-steps,
   .settings-row .s-steps-add {
     border-color: var(--accent);

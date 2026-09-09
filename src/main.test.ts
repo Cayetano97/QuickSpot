@@ -59,14 +59,16 @@ function flush(): Promise<void> {
 }
 
 /** Stub the animation clock and the rAF loop; frames only advance on demand. */
-function installGlobals(): void {
+function installGlobals(prefersDark = false): void {
   virtualNow = 0;
   rafCb = null;
   vi.spyOn(performance, "now").mockImplementation(() => virtualNow);
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     configurable: true,
-    value: vi.fn().mockReturnValue({ matches: false }),
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("prefers-color-scheme: dark") ? prefersDark : false,
+    })),
   });
   window.requestAnimationFrame = ((cb: (time: number) => void) => {
     rafCb = cb;
@@ -100,6 +102,10 @@ function installDom(): void {
           <section class="settings-section" id="settings-general" aria-labelledby="settings-general-heading">
             <h2 class="settings-section-title" id="settings-general-heading">General</h2>
             <div class="settings-list">
+              <div class="settings-list-row">
+                <label class="settings-row-label" for="settings-theme" id="settings-theme-label">Appearance</label>
+                <select id="settings-theme" aria-label="Appearance"></select>
+              </div>
               <div class="settings-list-row">
                 <label class="settings-row-label" for="settings-lang" id="settings-language-label">Language</label>
                 <select id="settings-lang" aria-label="Language"></select>
@@ -165,8 +171,12 @@ async function mount(config?: {
   language?: string | null;
   magnify?: boolean;
   showIcons?: boolean;
+  theme?: string | null;
   /** App version reported by the runtime; null simulates a failed lookup. */
   version?: string | null;
+}, opts?: {
+  /** Simulate an OS dark color scheme (jsdom defaults to light). */
+  prefersDark?: boolean;
 }): Promise<void> {
   vi.resetModules();
   for (const key of Object.keys(eventHandlers)) delete eventHandlers[key];
@@ -179,6 +189,7 @@ async function mount(config?: {
         language: config?.language ?? null,
         magnify: config?.magnify ?? true,
         showIcons: config?.showIcons ?? true,
+        theme: config?.theme ?? null,
       });
     }
     if (cmd === "list_apps") return Promise.resolve(INSTALLED_APPS);
@@ -205,7 +216,7 @@ async function mount(config?: {
     eventHandlers[name] = handler;
     return Promise.resolve(() => {});
   });
-  installGlobals();
+  installGlobals(opts?.prefersDark ?? false);
   installDom();
   await import("./main");
   await flush();
@@ -475,6 +486,7 @@ describe("settings panel", () => {
       language: null,
       magnify: false,
       showIcons: true,
+      theme: null,
     });
     expect(document.querySelector("#settings")!.classList.contains("open")).toBe(false);
   });
@@ -625,6 +637,58 @@ describe("settings panel", () => {
     expect(invoke).toHaveBeenCalledWith("save_config", expect.anything());
     expect(document.querySelector("#settings")!.classList.contains("open")).toBe(false);
   });
+
+  it("applies the deep theme from the config as data-theme", async () => {
+    await mount({ theme: "deep" });
+    expect(document.documentElement.dataset.theme).toBe("deep");
+  });
+
+  it("applies the light theme from the config as data-theme", async () => {
+    await mount({ theme: "light" });
+    expect(document.documentElement.dataset.theme).toBe("light");
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    expect(document.querySelector<HTMLSelectElement>("#settings-theme")!.value).toBe("light");
+  });
+
+  it("system follows the OS: light in jsdom, dark with a dark OS", async () => {
+    await mount();
+    expect(document.documentElement.dataset.theme).toBe("light");
+    await mount({}, { prefersDark: true });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("switching the appearance to deep black updates data-theme live and saves the pin", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const select = document.querySelector<HTMLSelectElement>("#settings-theme")!;
+    expect(select.value).toBe("system");
+    select.value = "deep";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(document.documentElement.dataset.theme).toBe("deep");
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith("save_config", expect.objectContaining({ theme: "deep" }));
+  });
+
+  it("localizes the appearance options", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const labels = Array.from(
+      document.querySelectorAll<HTMLOptionElement>("#settings-theme option"),
+      (o) => o.textContent,
+    );
+    expect(labels).toEqual(["System", "Light", "Dark", "Deep black"]);
+    const lang = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    lang.value = "es";
+    lang.dispatchEvent(new Event("change", { bubbles: true }));
+    const esLabels = Array.from(
+      document.querySelectorAll<HTMLOptionElement>("#settings-theme option"),
+      (o) => o.textContent,
+    );
+    expect(esLabels).toEqual(["Sistema", "Claro", "Oscuro", "Negro profundo"]);
+    expect(document.querySelector("#settings-theme-label")!.textContent).toBe("Apariencia");
+  });
 });
 
 describe("actions panel", () => {
@@ -723,6 +787,7 @@ describe("actions panel", () => {
       language: null,
       magnify: true,
       showIcons: true,
+      theme: null,
     });
     expect(document.querySelector("#actions")!.classList.contains("open")).toBe(false);
   });
@@ -1254,6 +1319,7 @@ describe("groups", () => {
       language: null,
       magnify: true,
       showIcons: true,
+      theme: null,
     });
   });
 

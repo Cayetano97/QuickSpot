@@ -1,8 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0d0d0e" />
     <title>QuickSpot</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
@@ -70,6 +72,15 @@
           <section class="settings-section" id="settings-general" aria-labelledby="settings-general-heading">
             <h2 class="settings-section-title" id="settings-general-heading">General</h2>
             <div class="settings-list">
+              <div class="settings-list-row settings-list-row-col">
+                <label class="settings-row-label" for="settings-theme" id="settings-theme-label">Appearance</label>
+                <select id="settings-theme" aria-label="Appearance">
+                  <option value="system">System</option>
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                  <option value="deep">Deep black</option>
+                </select>
+              </div>
               <div class="settings-list-row settings-list-row-col">
                 <label class="settings-row-label" for="settings-lang" id="settings-language-label">Language</label>
                 <select id="settings-lang" aria-label="Language"></select>

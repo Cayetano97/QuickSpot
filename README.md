@@ -119,6 +119,7 @@ skipped.
 | `group` | Optional: id of the group this action belongs to |
 | `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The actions panel manages groups and colors (curated palette plus a validated custom hex) |
 | `language` | Optional, top-level: `"system"` (follow the OS language) or any BCP-47-ish code with a locale file — currently `"en"`, `"es"`. Unknown codes fall back to English |
+| `theme` | Optional, top-level: `"system"` (follow the OS — light OS → light, dark OS → dark), `"light"`, `"dark"` or `"deep"` (OLED true black, explicit opt-in). Unknown values fall back to system; omitted when system |
 
 A `file` action opens its `value` with the OS default handler. A `folder`
 action opens its `value` in the OS file manager. The actions panel offers a

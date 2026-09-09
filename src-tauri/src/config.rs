@@ -84,8 +84,11 @@ pub enum ConfigError {
 /// group is just a named color bucket actions can reference), an optional
 /// language override (`"system"` = follow the OS, or any BCP-47-ish code
 /// such as `"en"` / `"es"` / `"fr"`; `None` = follow the OS), the dock hover
-/// magnification flag (defaults to on), and whether the action chips show
-/// their kind icons (defaults to on).
+/// magnification flag (defaults to on), whether the action chips show
+/// their kind icons (defaults to on), and an optional appearance override
+/// (`None`/`"system"` = follow the OS: light OS -> light, dark OS -> dark;
+/// `Some("light"|"dark"|"deep")` pins the variant, `deep` being the
+/// pure-black OLED opt-in).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Config {
     pub actions: Vec<Action>,
@@ -93,6 +96,7 @@ pub struct Config {
     pub language: Option<String>,
     pub magnify: bool,
     pub show_icons: bool,
+    pub theme: Option<String>,
 }
 
 impl Config {
@@ -103,6 +107,7 @@ impl Config {
             language: None,
             magnify: true,
             show_icons: true,
+            theme: None,
         }
     }
 }
@@ -119,6 +124,13 @@ pub fn valid_language(value: &str) -> bool {
             && value
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+}
+
+/// The accepted `theme` values: `"system"` (follow the OS), `"light"`,
+/// `"dark"` (elevated gray) or `"deep"` (pure-black OLED). Anything else
+/// falls back to system, so a hand-edit can never break the UI.
+pub fn valid_theme(value: &str) -> bool {
+    matches!(value, "system" | "light" | "dark" | "deep")
 }
 
 /// The three built-in defaults.
@@ -288,12 +300,17 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
     };
     let magnify = root.get("magnify").and_then(|v| v.as_bool()).unwrap_or(true);
     let show_icons = root.get("showIcons").and_then(|v| v.as_bool()).unwrap_or(true);
+    let theme = match root.get("theme").and_then(|v| v.as_str()) {
+        Some(t) if valid_theme(t) && t != "system" => Some(t.to_string()),
+        _ => None,
+    };
     Ok(Config {
         actions: out,
         groups,
         language,
         magnify,
         show_icons,
+        theme,
     })
 }
 
@@ -387,7 +404,8 @@ pub fn sanitize_groups(groups: Vec<Group>) -> Vec<Group> {
 /// Write the config back to `path` as pretty JSON (camelCase, optional
 /// fields omitted). `language: None` (system default) omits the field; so
 /// does `magnify: true` or `showIcons: true`, since on is the default; an
-/// empty group list is omitted too.
+/// empty group list is omitted too. `theme: None` (system) is omitted; only
+/// an explicit `light`/`dark`/`deep` pin is written.
 pub fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     let mut root = serde_json::json!({ "actions": sanitize(config.actions.clone()) });
     if !config.groups.is_empty() {
@@ -402,6 +420,11 @@ pub fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     }
     if !config.show_icons {
         root["showIcons"] = serde_json::Value::Bool(false);
+    }
+    if let Some(theme) = &config.theme {
+        if valid_theme(theme) && theme != "system" {
+            root["theme"] = serde_json::Value::String(theme.clone());
+        }
     }
     let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
     std::fs::write(path, text).map_err(|e| e.to_string())
@@ -539,6 +562,7 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            theme: None,
         };
         save_to(&path, &original).unwrap();
         assert_eq!(load_from(&path), original);
@@ -598,6 +622,7 @@ mod tests {
             language: None,
             magnify: false,
             show_icons: true,
+            theme: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -630,6 +655,7 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: false,
+            theme: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -681,6 +707,7 @@ mod tests {
             language: Some("es".into()),
             magnify: false,
             show_icons: false,
+            theme: None,
         };
         save_to(&path, &original).unwrap();
         assert_eq!(load_from(&path), original);
@@ -697,6 +724,7 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            theme: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -806,6 +834,7 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            theme: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -939,9 +968,68 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            theme: None,
         };
         save_to(&path, &original).unwrap();
         assert_eq!(load_from(&path), original);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn theme_defaults_to_system() {
+        let config = parse_config(r#"{"actions":[]}"#).unwrap();
+        assert_eq!(config.theme, None);
+    }
+
+    #[test]
+    fn theme_is_parsed_when_valid() {
+        let deep = parse_config(r#"{"theme":"deep","actions":[]}"#).unwrap();
+        assert_eq!(deep.theme.as_deref(), Some("deep"));
+        let dark = parse_config(r#"{"theme":"dark","actions":[]}"#).unwrap();
+        assert_eq!(dark.theme.as_deref(), Some("dark"));
+        let light = parse_config(r#"{"theme":"light","actions":[]}"#).unwrap();
+        assert_eq!(light.theme.as_deref(), Some("light"));
+    }
+
+    #[test]
+    fn theme_falls_back_to_system_when_unknown() {
+        for text in [
+            r#"{"theme":"system","actions":[]}"#,
+            r#"{"theme":"sepia","actions":[]}"#,
+            r#"{"theme":"","actions":[]}"#,
+            r#"{"theme":42,"actions":[]}"#,
+        ] {
+            let config = parse_config(text).unwrap();
+            assert_eq!(config.theme, None, "{text}");
+        }
+    }
+
+    #[test]
+    fn theme_is_written_only_when_pinned() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("quickspot-save-theme-{}.json", std::process::id()));
+        let config = Config {
+            actions: vec![action("Vercel", "https://vercel.com")],
+            groups: Vec::new(),
+            language: None,
+            magnify: true,
+            show_icons: true,
+            theme: Some("deep".into()),
+        };
+        save_to(&path, &config).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"theme\": \"deep\""));
+        assert_eq!(load_from(&path), config);
+        let _ = std::fs::remove_file(&path);
+
+        let system = Config {
+            theme: None,
+            ..config
+        };
+        save_to(&path, &system).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("theme"));
+        assert_eq!(load_from(&path), system);
         let _ = std::fs::remove_file(&path);
     }
 }
