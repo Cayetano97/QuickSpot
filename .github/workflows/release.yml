@@ -98,11 +98,9 @@ jobs:
           releaseBody: |
             ### Highlights
 
-            - **Sequence actions** — a sixth action kind that runs up to 5 steps in order (URL, command, app, file or folder — no nesting). Pick `Sequence` as the type and give each step its own type and value with the same pickers as single actions; steps run best-effort without delay and the overlay always closes.
-            - **Roomier actions editor** — the panel grows from 500x560 to 620x680, the header plus "Add action" stay pinned in a sticky toolbar, and new cards are born at the top so you never scroll to find what you just created.
-            - **Safer kind switching** — changing an action's type now clears the stale value (a URL, a shell command and a file path are incompatible), keeping only your label and group. Re-selecting the same kind is a no-op and never wipes anything.
-            - **Bigger overlay window, same disc** — the OS window grows from 520x580 to 680x740 with the 520x580 launcher canvas centered inside, so the larger editor no longer clips its shadow; scaling now tracks the window size and panels are clamped to the viewport on small screens.
-            - **Full-height reorder rail** — the Up/Down buttons stretch with each card instead of staying fixed squares, and a hand-edited config with blank or nested sequence steps is sanitized the same way in Rust and TypeScript.
+            - **Appearance** — new Settings row with System (follows the OS: light OS → light, dark OS → dark), Light, Dark or Deep black (pure-black OLED opt-in). It applies live, persists as the `theme` config key and is fully localized.
+            - **Hover magnification that tracks the cursor** — pointer coordinates are mapped through the centered, scaled canvas, so the chip under the cursor is the one that grows and gets selected; leaving the window drops the magnification instead of leaving a chip stuck enlarged.
+            - **Theme-aware plumbing** — `theme-color` and `color-scheme` follow the active appearance, unknown values safely fall back to system, and the settings toggle switch keeps its 2px geometry guarded by tests.
           # Published (not draft): the in-app updater polls the
           # `releases/latest` endpoint, which only sees published releases.
           releaseDraft: false
