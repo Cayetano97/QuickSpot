@@ -139,13 +139,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'QuickSpot v__VERSION__'
+          releaseName: 'v__VERSION__'
           releaseBody: |
             ### Highlights
 
-            - **Appearance** — new Settings row with System (follows the OS: light OS → light, dark OS → dark), Light, Dark or Deep black (pure-black OLED opt-in). It applies live, persists as the `theme` config key and is fully localized.
-            - **Hover magnification that tracks the cursor** — pointer coordinates are mapped through the centered, scaled canvas, so the chip under the cursor is the one that grows and gets selected; leaving the window drops the magnification instead of leaving a chip stuck enlarged.
-            - **Theme-aware plumbing** — `theme-color` and `color-scheme` follow the active appearance, unknown values safely fall back to system, and the settings toggle switch keeps its 2px geometry guarded by tests.
+            - **Control QuickSpot from any AI agent (MCP)** — new `mcp-quickspot` server with list/create/update/delete/move actions plus list/create/delete groups, using the same validation as the Rust backend. Ships as `quickspot.mcpb` (one-click Claude Desktop install) and `quickspot-mcp.js` (stdio for OpenCode, Claude Code, Cursor, Copilot, Windsurf, Gemini/Codex CLI), attached to this release with checksums; after each change press `Cmd/Ctrl+R` to reload.
+            - **Update popup instead of the disc pill** — the blue pill is gone; updates now arrive as a centered modal with Update now, Later (snoozes this version for the session) and On next open (auto-installs on the next overlay open, persisted in localStorage). Shows live download/install progress and install errors inline, opens from Settings too, and respects Esc, focus trap and backdrop-click to snooze.
+            - **Resizable Settings and Actions panels** — the borderless OS window is now resizable (480x600 to 1100x900) with native edge/corner drags (native snap on Windows/Linux, manual `setSize`/`setPosition` fallback on macOS) plus a subtle SE grip. Both panels are fluid and track the window; Settings is regrouped into Appearance / General / Updates sections (520px sheet) and the Actions editor fills up to 980x820. Double-click the grip recenters on the current monitor, and panel headers act as title bars for moving.
+            - **Accent- and whitespace-insensitive search** — queries normalize (trim, collapse spaces, lowercase, strip diacritics), so `cancion` finds `Canción`, `native   sdk` finds `Native SDK docs` and `  GitHub  ` just works. Whitespace-only input counts as empty (shows everything, no "no matches"), the input keeps raw keystrokes so the caret never jumps, and the app picker shares the same matching.
           # Published (not draft): the in-app updater polls the
           # `releases/latest` endpoint, which only sees published releases.
           releaseDraft: false

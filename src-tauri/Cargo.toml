@@ -1,6 +1,6 @@
 [package]
 name = "quickspot"
-version = "0.5.5"
+version = "0.6.0"
 description = "Spotlight-style quick-action launcher"
 authors = ["QuickSpot"]
 edition = "2021"
