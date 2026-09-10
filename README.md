@@ -23,9 +23,9 @@
 ---
 
 QuickSpot lives quietly in your system tray. Hit the global hotkey and a
-round, dark-gray overlay fades in at the center of the monitor under your
+round overlay fades in at the center of the monitor under your
 cursor — with matching actions orbiting a central hub. Type to filter,
-use the arrow keys to move the selection, and press Enter to run.
+use `Tab` / `Up` / `Down` to move the selection, and press Enter to run.
 
 ## Hotkey
 
@@ -66,7 +66,7 @@ dependencies (Xcode CLT on macOS; webkit2gtk-4.1 + gtk3 on Linux).
 ```sh
 npm install
 
-# run the tests (frontend + backend)
+# run the tests: frontend (Vitest) and backend (Rust)
 npm test
 cd src-tauri && cargo test && cd ..
 
@@ -80,7 +80,7 @@ QuickSpot reads `quickspot.config.json` from the per-user config directory
 (`~/Library/Application Support/dev.quickspot.app` on macOS,
 `%APPDATA%\dev.quickspot.app` on Windows,
 `$XDG_CONFIG_HOME/dev.quickspot.app` on Linux). On first run, a legacy
-`quickspot.config.json` next to the binary is migrated automatically. If
+`quickspot.config.json` found in the working directory is migrated automatically. If
 the file is missing or malformed, it falls back to built-in defaults. There
 is no limit on the number of actions; the overlay shows the first 8 matches
 of the current query. Items missing `name`/`kind` (or `value` for
@@ -120,6 +120,8 @@ skipped.
 | `groups` | Optional, top-level: `{ id, name, color }` buckets. A group's `color` is a `#rrggbb` hex that accents its actions' chips (border, icon and fill). Unknown or malformed groups are skipped; an action referencing a missing group just renders uncolored. The actions panel manages groups and colors (curated palette plus a validated custom hex) |
 | `language` | Optional, top-level: `"system"` (follow the OS language) or any BCP-47-ish code with a locale file — currently `"en"`, `"es"`. Unknown codes fall back to English |
 | `theme` | Optional, top-level: `"system"` (follow the OS — light OS → light, dark OS → dark), `"light"`, `"dark"` or `"deep"` (OLED true black, explicit opt-in). Unknown values fall back to system; omitted when system |
+| `magnify` | Optional, top-level: dock-style hover magnification on the chips. Defaults to on; omitted when on |
+| `showIcons` | Optional, top-level: show each action's kind icon on its chip. Defaults to on; omitted when on |
 
 A `file` action opens its `value` with the OS default handler. A `folder`
 action opens its `value` in the OS file manager. The actions panel offers a
@@ -148,12 +150,15 @@ QuickSpot to reload.
 - **Backend** — `cargo test` (in `src-tauri/`): config parsing fallbacks,
   per-platform execution plans, app discovery, and the drag-clamp /
   monitor-centering math.
+- **MCP server** — `npm run typecheck && npm test && npm run build` (in
+  `mcp-quickspot/`): config validation parity with the Rust backend,
+  installer and schema.
 
-Both suites run on GitHub Actions for every push and pull request (see
-`.github/workflows/ci.yml`): the frontend on Linux, the backend on Linux,
-macOS and Windows — so the platform-specific branches (macOS bundle-id
-routing, the Windows `cmd /c` shell, Linux `.desktop` parsing) are
-exercised on their real platforms.
+All three suites run on GitHub Actions for pushes to `main` and pull
+requests (see `.github/workflows/ci.yml`): frontend and MCP on Linux, the
+backend on Linux, macOS and Windows — so the platform-specific branches
+(macOS bundle-id routing, the Windows `cmd /c` shell, Linux `.desktop`
+parsing) are exercised on their real platforms.
 
 ## Translations
 
@@ -177,9 +182,12 @@ To add a language:
 ## Updates
 
 QuickSpot self-updates from GitHub Releases. When a new release is
-published, a subtle blue pill appears at the bottom of the overlay
-(`Update to v0.6.0`); clicking it downloads the new version, installs it
-and relaunches into it.
+published, a centered dialog offers it with three choices: `Update now`
+(downloads, installs and relaunches into the new version, with live
+progress and inline install errors), `Later` (snoozes that version for
+the rest of the session) and `On next open` (auto-installs on the next
+overlay open). The same update can also be checked for and installed
+from Settings → Updates (`Check for updates`).
 
 ## License
 
