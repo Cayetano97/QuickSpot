@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { open as pickPath } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -55,6 +56,8 @@ import {
   isReadableOnDark,
   MAX_SEQUENCE_STEPS,
   moveSelection,
+  normalizeName,
+  normalizeQuery,
   SEQUENCE_STEP_KINDS,
   uniqueGroupId,
   type Action,
@@ -101,8 +104,6 @@ const disc = document.querySelector<HTMLElement>("#disc")!;
 const hub = document.querySelector<HTMLButtonElement>("#hub")!;
 const addBtn = document.querySelector<HTMLButtonElement>("#add")!;
 const minimize = document.querySelector<HTMLButtonElement>("#minimize")!;
-const updateBtn = document.querySelector<HTMLButtonElement>("#update")!;
-const updateLabel = document.querySelector<HTMLElement>("#update .update-label")!;
 const grip = document.querySelector<HTMLElement>("#grip")!;
 const input = document.querySelector<HTMLInputElement>("#query")!;
 const queryWrap = document.querySelector<HTMLElement>("#query-wrap")!;
@@ -132,6 +133,16 @@ const settingsThemeLabel = document.querySelector<HTMLElement>("#settings-theme-
 const themeSelect = document.querySelector<HTMLSelectElement>("#settings-theme")!;
 const settingsError = document.querySelector<HTMLElement>("#settings-error")!;
 const settingsSave = document.querySelector<HTMLButtonElement>("#settings-save")!;
+
+const updatePopup = document.querySelector<HTMLElement>("#update-popup")!;
+const updatePopupTitle = document.querySelector<HTMLElement>("#update-popup-title")!;
+const updatePopupDesc = document.querySelector<HTMLElement>("#update-popup-desc")!;
+const updatePopupStatus = document.querySelector<HTMLElement>("#update-popup-status")!;
+const updatePopupError = document.querySelector<HTMLElement>("#update-popup-error")!;
+const updatePopupNow = document.querySelector<HTMLButtonElement>("#update-popup-now")!;
+const updatePopupLater = document.querySelector<HTMLButtonElement>("#update-popup-later")!;
+const updatePopupNext = document.querySelector<HTMLButtonElement>("#update-popup-next")!;
+const updatePopupClose = document.querySelector<HTMLButtonElement>("#update-popup-close")!;
 populateLanguages();
 populateThemeOptions();
 
@@ -152,11 +163,19 @@ let activeActionsTab: "actions" | "groups" = "actions";
 let uiScale = 1;
 
 // ---------------------------------------------------------------- updater
+//
+// Updates are only offered from the update popup and from Settings — never
+// from a pill on the disc. The popup appears when a check finds a newer
+// release and offers: update now, defer to the next overlay open
+// (auto-installs then), or dismiss for this session ("Later").
 
 /** Minimum time between update checks on overlay opens (ms). The first open
  * after launch always checks; afterwards the server is polled at most every
  * five minutes so the always-on-top overlay never stalls on the network. */
 const UPDATE_MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+/** localStorage key for the "install on next open" deferral (a version). */
+const UPDATE_NEXT_OPEN_KEY = "quickspot.update.nextOpenVersion";
 
 type UpdatePhase = "none" | "available" | "downloading" | "installing";
 
@@ -164,33 +183,50 @@ let updatePhase: UpdatePhase = "none";
 let pendingUpdate: Update | null = null;
 let updatePercent = 0;
 let updateCheckedAt = 0;
+let updatePopupOpen = false;
+/** Version dismissed via "Later" this session: not shown again until a new
+ * version appears, a manual check runs, or the app restarts. */
+let updateDismissedVersion: string | null = null;
 
 /** Manual "Check for updates" state inside the settings panel. */
 let settingsUpdateState: "idle" | "checking" | "uptodate" = "idle";
 
-/** Recompute the pill's label from the current phase (localized). */
-function updateLabelText(): string {
-  const L = currentLanguage;
-  switch (updatePhase) {
-    case "available":
-      return t(L, "updateTo", { version: pendingUpdate?.version ?? "" });
-    case "downloading":
-      return t(L, "updateDownloading", { percent: String(updatePercent) });
-    case "installing":
-      return t(L, "updateInstalling");
-    default:
-      return "";
+function updateStore(): Storage | null {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+  } catch {
+    // No storage (private mode, tests): deferral just lasts this session.
+  }
+  return null;
+}
+
+function getNextOpenVersion(): string | null {
+  try {
+    return updateStore()?.getItem(UPDATE_NEXT_OPEN_KEY) ?? null;
+  } catch {
+    return null;
   }
 }
 
-/** Reflect the update state on the pill: label, aria, tab order, disabled. */
-function syncUpdateBtn(): void {
-  const visible = updatePhase !== "none";
-  updateLabel.textContent = updateLabelText();
-  updateBtn.setAttribute("aria-label", updateLabelText());
-  updateBtn.disabled = updatePhase === "downloading" || updatePhase === "installing";
-  updateBtn.tabIndex = visible && !panelOpen() ? 0 : -1;
-  syncSettingsUpdateBtn();
+function setNextOpenVersion(version: string | null): void {
+  try {
+    const store = updateStore();
+    if (!store) return;
+    if (version) store.setItem(UPDATE_NEXT_OPEN_KEY, version);
+    else store.removeItem(UPDATE_NEXT_OPEN_KEY);
+  } catch {
+    // Private mode / no storage: deferral just lasts this session.
+  }
+}
+
+/** Progress/status line for an in-flight install (localized). */
+function updateStatusText(): string {
+  const L = currentLanguage;
+  if (updatePhase === "downloading") {
+    return t(L, "updateDownloading", { percent: String(updatePercent) });
+  }
+  if (updatePhase === "installing") return t(L, "updateInstalling");
+  return "";
 }
 
 /** Reflect the update state on the settings row: label, status, disabled. */
@@ -221,11 +257,114 @@ function syncSettingsUpdateBtn(): void {
   settingsUpdateBtn.setAttribute("aria-label", text);
 }
 
+/** Refresh the popup contents from the current phase (no-op when closed). */
+function syncUpdatePopup(): void {
+  if (!updatePopupOpen) return;
+  const L = currentLanguage;
+  const busy = updatePhase === "downloading" || updatePhase === "installing";
+  updatePopupTitle.textContent = t(L, "updatePopupTitle");
+  updatePopup.setAttribute("aria-label", t(L, "updatePopupTitle"));
+  updatePopupDesc.textContent =
+    updatePhase !== "none" && pendingUpdate
+      ? t(L, "updatePopupDesc", { version: pendingUpdate.version })
+      : "";
+  updatePopupStatus.textContent = updateStatusText();
+  updatePopupNow.textContent = busy ? updateStatusText() : t(L, "updateNow");
+  updatePopupNow.setAttribute("aria-label", busy ? updateStatusText() : t(L, "updateNow"));
+  updatePopupLater.textContent = t(L, "updateLater");
+  updatePopupNext.textContent = t(L, "updateNextOpen");
+  updatePopupClose.setAttribute("aria-label", t(L, "close"));
+  updatePopupNow.disabled = busy;
+  updatePopupLater.disabled = busy;
+  updatePopupNext.disabled = busy;
+  updatePopupClose.disabled = busy;
+}
+
+/** Reflect the update state everywhere it surfaces: popup + settings. */
+function syncUpdateUi(): void {
+  syncSettingsUpdateBtn();
+  syncUpdatePopup();
+}
+
+/** Show the popup for the pending update (guarded: no panels, visible). */
+function openUpdatePopup(): void {
+  if (updatePopupOpen || updatePhase === "none" || !pendingUpdate) return;
+  if (settingsOpen || actionsOpen) return;
+  if (overlay.phase !== "visible") return;
+  updatePopupOpen = true;
+  updatePopupError.textContent = "";
+  updatePopupError.classList.remove("visible");
+  updatePopup.classList.add("open");
+  updatePopup.setAttribute("aria-hidden", "false");
+  syncUpdatePopup();
+  updatePopupNow.focus();
+}
+
+/** Show the popup for an in-flight install, bypassing snooze/defer guards. */
+function openUpdatePopupForProgress(): void {
+  if (updatePopupOpen || updatePhase === "none" || !pendingUpdate) return;
+  if (settingsOpen || actionsOpen) return;
+  if (overlay.phase !== "visible") return;
+  updatePopupOpen = true;
+  updatePopup.classList.add("open");
+  updatePopup.setAttribute("aria-hidden", "false");
+  syncUpdatePopup();
+}
+
+/** Hide the popup without recording a choice (e.g. opening Settings). */
+function closeUpdatePopup(): void {
+  if (!updatePopupOpen) return;
+  updatePopupOpen = false;
+  updatePopup.classList.remove("open");
+  updatePopup.setAttribute("aria-hidden", "true");
+  if (overlay.phase === "visible" && !panelOpen()) input.focus();
+}
+
+/** "Later": hide and don't auto-show this version again this session. */
+function dismissUpdatePopup(): void {
+  if (pendingUpdate) updateDismissedVersion = pendingUpdate.version;
+  closeUpdatePopup();
+}
+
+/** "On next open": auto-install this version on the next overlay open. */
+function deferUpdateToNextOpen(): void {
+  if (pendingUpdate) {
+    setNextOpenVersion(pendingUpdate.version);
+    updateDismissedVersion = null;
+  }
+  closeUpdatePopup();
+}
+
+function shouldAutoInstallOnOpen(): boolean {
+  return (
+    updatePhase === "available" &&
+    !!pendingUpdate &&
+    getNextOpenVersion() === pendingUpdate.version
+  );
+}
+
+/** Auto-show the popup for a fresh update, respecting snooze + deferral. */
+function maybeShowUpdatePopup(): void {
+  if (updatePhase !== "available" || !pendingUpdate) return;
+  if (updatePopupOpen) return;
+  if (settingsOpen || actionsOpen) return;
+  if (overlay.phase !== "visible") return;
+  if (getNextOpenVersion() === pendingUpdate.version) return;
+  if (updateDismissedVersion === pendingUpdate.version) return;
+  openUpdatePopup();
+}
+
 /** Poll GitHub for a newer release; propagates failures to the caller. */
 async function performCheck(): Promise<void> {
   pendingUpdate = await check();
-  updatePhase = pendingUpdate ? "available" : "none";
-  syncUpdateBtn();
+  if (!pendingUpdate) {
+    updatePhase = "none";
+    // Nothing to install: a stale deferral (e.g. already installed) clears.
+    setNextOpenVersion(null);
+  } else {
+    updatePhase = "available";
+  }
+  syncUpdateUi();
 }
 
 /** Poll GitHub for a newer release; non-fatal when offline. */
@@ -236,9 +375,14 @@ async function checkForUpdate(): Promise<void> {
   updateCheckedAt = now;
   try {
     await performCheck();
+    if (shouldAutoInstallOnOpen()) {
+      void installUpdate();
+    } else {
+      maybeShowUpdatePopup();
+    }
   } catch {
     // Offline or no endpoint yet: keep whatever state we had.
-    syncUpdateBtn();
+    syncUpdateUi();
   }
 }
 
@@ -253,21 +397,31 @@ async function checkForUpdatesManual(): Promise<void> {
     await performCheck();
     updateCheckedAt = Date.now();
     settingsUpdateState = pendingUpdate ? "idle" : "uptodate";
+    // A manual find counts as fresh intent: a previous "Later" for this
+    // version no longer suppresses the popup once Settings closes.
+    if (pendingUpdate) updateDismissedVersion = null;
   } catch {
     settingsUpdateState = "idle";
     settingsError.textContent = t(currentLanguage, "updateCheckError");
     settingsError.classList.add("visible");
   }
-  syncSettingsUpdateBtn();
+  syncUpdateUi();
+  maybeShowUpdatePopup();
 }
 
 /** Download + install the pending update, then relaunch into it. */
 async function installUpdate(): Promise<void> {
   if (updatePhase !== "available" || !pendingUpdate) return;
   const update = pendingUpdate;
+  // Installing now: the deferral and the snooze are fulfilled.
+  setNextOpenVersion(null);
+  updateDismissedVersion = null;
   updatePhase = "downloading";
   updatePercent = 0;
-  syncUpdateBtn();
+  updatePopupError.textContent = "";
+  updatePopupError.classList.remove("visible");
+  openUpdatePopupForProgress();
+  syncUpdateUi();
   try {
     let downloaded = 0;
     let contentLength = 0;
@@ -280,7 +434,7 @@ async function installUpdate(): Promise<void> {
           downloaded += event.data.chunkLength;
           if (contentLength > 0) {
             updatePercent = Math.min(99, Math.round((downloaded / contentLength) * 100));
-            syncUpdateBtn();
+            syncUpdateUi();
           }
           break;
         case "Finished":
@@ -288,17 +442,40 @@ async function installUpdate(): Promise<void> {
       }
     });
     updatePhase = "installing";
-    syncUpdateBtn();
+    syncUpdateUi();
     await relaunch();
   } catch (err) {
     console.error("[quickspot] update failed:", err);
     updatePhase = "available";
-    syncUpdateBtn();
+    const msg = err instanceof Error ? err.message : String(err);
+    updatePopupError.textContent = t(currentLanguage, "updateInstallError", { msg });
+    updatePopupError.classList.add("visible");
+    syncUpdateUi();
   }
 }
 
-updateBtn.addEventListener("click", () => {
+updatePopupNow.addEventListener("click", () => {
   void installUpdate();
+});
+
+updatePopupLater.addEventListener("click", () => {
+  if (updatePopupNow.disabled) return;
+  dismissUpdatePopup();
+});
+
+updatePopupNext.addEventListener("click", () => {
+  if (updatePopupNow.disabled) return;
+  deferUpdateToNextOpen();
+});
+
+updatePopupClose.addEventListener("click", () => {
+  if (updatePopupNow.disabled) return;
+  dismissUpdatePopup();
+});
+
+// Clicking outside the card (transparent backdrop layer) snoozes like "Later".
+updatePopup.addEventListener("click", (e) => {
+  if (e.target === updatePopup && !updatePopupNow.disabled) dismissUpdatePopup();
 });
 
 // In settings the check is manual: a button that forces a lookup (or jumps
@@ -370,10 +547,16 @@ for (let i = 0; i < MAX_VISIBLE; i++) {
 // ------------------------------------------------------------------ helpers
 
 function showQuery(): void {
-  mirror.textContent = queryText.length > 0 ? queryText : t(currentLanguage, "placeholder");
-  mirror.classList.toggle("dim", queryText.length === 0);
-  queryWrap.classList.toggle("active", queryText.length > 0);
-  input.value = queryText;
+  // The input keeps the raw keystrokes (never rewritten, so the caret never
+  // jumps); only the *effective* query decides the pill state. A
+  // whitespace-only query normalizes to "" and shows the placeholder as if
+  // empty — searching for spaces alone is not a thing.
+  const effective = normalizeQuery(queryText);
+  const hasQuery = effective.length > 0;
+  mirror.textContent = hasQuery ? queryText : t(currentLanguage, "placeholder");
+  mirror.classList.toggle("dim", !hasQuery);
+  queryWrap.classList.toggle("active", hasQuery);
+  if (input.value !== queryText) input.value = queryText;
   // The pill grows with the text up to its CSS cap; past it, left-align and
   // scroll to the end so the tail of the query stays visible (the head is
   // what clips), keeping the caret reachable instead of typing blind.
@@ -398,8 +581,13 @@ function showRunError(msg: string): void {
  * of whether the animation loop is still running.
  */
 function syncEmptyState(): void {
-  const noResults = queryText.length > 0 && filtered.length === 0;
-  const noActionsYet = queryText.length === 0 && actions.length === 0;
+  // Emptiness is judged on the normalized query: whitespace-only input
+  // counts as "no query" (shows everything / "no actions yet"), never as
+  // "no matches". `countMatches`/`filterActions` share the same
+  // normalization, so the three can never disagree.
+  const hasQuery = normalizeQuery(queryText).length > 0;
+  const noResults = hasQuery && filtered.length === 0;
+  const noActionsYet = !hasQuery && actions.length === 0;
   emptyState.textContent = noResults
     ? t(currentLanguage, "noMatches")
     : noActionsYet
@@ -501,13 +689,13 @@ function localizeAll(): void {
   addBtn.setAttribute("aria-label", t(L, "addActions"));
   grip.setAttribute("aria-label", t(L, "dragAria"));
   minimize.setAttribute("aria-label", t(L, "minimize"));
-  syncUpdateBtn();
+  syncUpdateUi();
   settingsTitle.textContent = t(L, "settingsTitle");
   settingsPanel.setAttribute("aria-label", t(L, "settingsTitle"));
   settingsClose.setAttribute("aria-label", t(L, "close"));
   settingsLanguageLabel.textContent = t(L, "languageLabel");
-  settingsThemeLabel.textContent = t(L, "appearanceLabel");
-  themeSelect.setAttribute("aria-label", t(L, "appearanceLabel"));
+  settingsThemeLabel.textContent = t(L, "themeLabel");
+  themeSelect.setAttribute("aria-label", t(L, "themeLabel"));
   localizeThemeOptions();
   settingsDockLabel.textContent = t(L, "magnifyLabel");
   settingsMagnify.setAttribute("aria-label", t(L, "magnifyLabel"));
@@ -535,8 +723,12 @@ function localizeAll(): void {
   actionsSave.textContent = t(L, "save");
   actionsError.textContent = "";
   actionsRows.setAttribute("aria-label", t(L, "actionsAria"));
+  const appearanceHeading = document.querySelector<HTMLElement>("#settings-appearance-heading");
+  if (appearanceHeading) appearanceHeading.textContent = t(L, "appearanceSection");
   const generalHeading = document.querySelector<HTMLElement>("#settings-general-heading");
   if (generalHeading) generalHeading.textContent = t(L, "generalLabel");
+  const updatesHeading = document.querySelector<HTMLElement>("#settings-updates-heading");
+  if (updatesHeading) updatesHeading.textContent = t(L, "updatesSection");
   for (const row of actionsRows.querySelectorAll<HTMLElement>(".settings-row")) {
     localizeSettingsRow(row);
   }
@@ -665,11 +857,6 @@ function render(): void {
   addBtn.style.pointerEvents = pe;
   minimize.style.pointerEvents = pe;
   for (let i = 0; i < MAX_VISIBLE; i++) chips[i].style.pointerEvents = pe;
-
-  const updateVisible = updatePhase !== "none";
-  updateBtn.style.opacity = String(easeOutQuart(dp) * (updateVisible ? 1 : 0));
-  updateBtn.style.transform = `translateX(-50%) translateY(${(1 - easeOutCubic(dp)) * 10}px)`;
-  updateBtn.style.pointerEvents = enabled && updateVisible && !updateBtn.disabled ? "auto" : "none";
 }
 
 // ------------------------------------------------------------ animation loop
@@ -688,7 +875,15 @@ function frame(_now: number): void {
     if (overlay.phase === "visible") {
       root.classList.add("open");
       applyChipTransforms();
-      input.focus();
+      // The update check usually resolves mid-animation (while the overlay
+      // is still "opening" and the popup refuses to show), so offer it now
+      // that the overlay has settled — progress first, fresh prompt after.
+      if (updatePhase === "downloading" || updatePhase === "installing") {
+        if (pendingUpdate) openUpdatePopupForProgress();
+      } else {
+        maybeShowUpdatePopup();
+      }
+      if (!updatePopupOpen) input.focus();
     } else {
       root.classList.remove("open");
       void invoke("on_overlay_closed");
@@ -725,6 +920,9 @@ function moveSelectionBy(delta: number): void {
 input.addEventListener("input", () => {
   const capped = capUtf8Bytes(input.value);
   if (capped !== input.value) input.value = capped;
+  // Keep the raw text (no trim here: rewriting the value mid-typing moves
+  // the caret). `filterActions`/`syncEmptyState`/`showQuery` normalize for
+  // matching, so leading/trailing/duplicate spaces and accents just work.
   queryText = input.value;
   showQuery();
   refilter();
@@ -734,6 +932,10 @@ input.addEventListener("keydown", (e) => {
   const key = e.key;
   if (key === "Escape") {
     e.preventDefault();
+    if (updatePopupOpen) {
+      dismissUpdatePopup();
+      return;
+    }
     if (settingsOpen || actionsOpen) {
       closePanels();
       return;
@@ -934,16 +1136,17 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
 applyTheme();
 
 document.addEventListener("keydown", (e) => {
-  if (!settingsOpen && !actionsOpen) return;
+  if (!settingsOpen && !actionsOpen && !updatePopupOpen) return;
   if (e.key === "Escape") {
     e.preventDefault();
-    closePanels();
+    if (updatePopupOpen) dismissUpdatePopup();
+    else closePanels();
   }
 });
 
 // Focus trap: Tab cycles inside the panel instead of escaping to the
 // (invisible) overlay controls or the webview chrome.
-for (const panel of [settingsPanel, actionsPanel]) {
+for (const panel of [settingsPanel, actionsPanel, updatePopup]) {
   panel.addEventListener("keydown", (e) => {
     if (e.key !== "Tab" || !panel.classList.contains("open")) return;
     const focusables = [...panel.querySelectorAll<HTMLElement>(
@@ -987,6 +1190,190 @@ function endGripDrag(): void {
 grip.addEventListener("pointerdown", onGripDown);
 window.addEventListener("pointerup", endGripDrag);
 window.addEventListener("blur", endGripDrag);
+
+// Doble clic sobre el grip: recentra el círculo en el monitor actual.
+// Termina cualquier arrastre en curso antes de centrar para que el
+// watchdog de clamp no pelee con el reposicionamiento.
+grip.addEventListener("dblclick", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  grip.classList.remove("dragging");
+  grip.classList.remove("hover");
+  void invoke("drag_end");
+  void invoke("center_window").catch(() => {});
+});
+
+// Panel move: the grip is hidden while a panel is open, so the panel
+// headers double as title bars — a drag starting on header chrome (never on
+// its buttons) moves the whole OS window via the same native `drag_start`
+// path as the grip, clamp watchdog included. The global pointerup/blur
+// listeners above already end the drag.
+const settingsHeader = document.querySelector<HTMLElement>("#settings-header")!;
+const actionsHeader = document.querySelector<HTMLElement>("#actions-header")!;
+function onPanelHeaderDown(e: PointerEvent): void {
+  if (e.button !== 0 || e.isPrimary === false) return;
+  const target = e.target as HTMLElement | null;
+  if (target?.closest?.("button, select, input, textarea, a, [role='tab'], [contenteditable]")) {
+    return;
+  }
+  e.preventDefault();
+  void invoke("drag_start");
+}
+settingsHeader.addEventListener("pointerdown", onPanelHeaderDown);
+actionsHeader.addEventListener("pointerdown", onPanelHeaderDown);
+
+// Native panel resize: pressing a panel edge/corner resizes the OS window
+// (the panels are fluid and viewport-relative, so they track it). Where the
+// backend owns the gesture (Windows/Linux `drag_resize_window`), the OS
+// performs the drag with native snapping. macOS's backend (tao) has no
+// `drag_resize_window` — its handler discards the result, so the IPC
+// *resolves* while doing nothing — and there the frontend drives
+// `setSize`/`setPosition` itself, the standard frameless-window technique
+// on that platform.
+type ResizeDirection =
+  | "East"
+  | "North"
+  | "NorthEast"
+  | "NorthWest"
+  | "South"
+  | "SouthEast"
+  | "SouthWest"
+  | "West";
+const RESIZE_DIRECTIONS: ReadonlySet<string> = new Set<string>([
+  "East",
+  "North",
+  "NorthEast",
+  "NorthWest",
+  "South",
+  "SouthEast",
+  "SouthWest",
+  "West",
+]);
+
+/** OS window bounds, mirrored from `overlay.rs::build_window`. JS clamps
+ * with the same values so West/North anchor math stays exact (the OS would
+ * clamp the size anyway, which would otherwise drift the anchored edge). */
+const RESIZE_MIN_W = 480;
+const RESIZE_MIN_H = 600;
+const RESIZE_MAX_W = 1100;
+const RESIZE_MAX_H = 900;
+
+function clampResize(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/** Manual resize drag for platforms without native `startResizeDragging`.
+ * Tracks the pointer and resizes (East/South edges) or resizes + moves
+ * (West/North edges, keeping the opposite edge anchored) every frame. */
+function beginManualResize(
+  handle: HTMLElement,
+  anchor: PointerEvent,
+  direction: ResizeDirection,
+): void {
+  const win = getCurrentWindow();
+  const resizeWest = direction.includes("West");
+  const resizeNorth = direction.includes("North");
+  const resizeEast = direction.includes("East");
+  const resizeSouth = direction.includes("South");
+  void (async () => {
+    let scale: number;
+    let startOuterX: number;
+    let startOuterY: number;
+    try {
+      scale = await win.scaleFactor();
+      const outer = await win.outerPosition();
+      // Physical px -> logical px (the unit `setSize`/`setPosition` take
+      // via `LogicalSize`/`LogicalPosition`, matching CSS px 1:1).
+      startOuterX = outer.x / scale;
+      startOuterY = outer.y / scale;
+    } catch {
+      return;
+    }
+    const anchorX = anchor.clientX;
+    const anchorY = anchor.clientY;
+    const startW = window.innerWidth;
+    const startH = window.innerHeight;
+    let rafId = 0;
+    let latest: PointerEvent | null = null;
+    const apply = (): void => {
+      rafId = 0;
+      if (!latest) return;
+      const dx = latest.clientX - anchorX;
+      const dy = latest.clientY - anchorY;
+      let w = startW;
+      let h = startH;
+      if (resizeEast) w = clampResize(startW + dx, RESIZE_MIN_W, RESIZE_MAX_W);
+      else if (resizeWest) w = clampResize(startW - dx, RESIZE_MIN_W, RESIZE_MAX_W);
+      if (resizeSouth) h = clampResize(startH + dy, RESIZE_MIN_H, RESIZE_MAX_H);
+      else if (resizeNorth) h = clampResize(startH - dy, RESIZE_MIN_H, RESIZE_MAX_H);
+      void win.setSize(new LogicalSize(w, h)).catch(() => {});
+      if (resizeWest || resizeNorth) {
+        const x = resizeWest ? startOuterX + (startW - w) : startOuterX;
+        const y = resizeNorth ? startOuterY + (startH - h) : startOuterY;
+        void win.setPosition(new LogicalPosition(x, y)).catch(() => {});
+      }
+      latest = null;
+    };
+    const onMove = (e: PointerEvent): void => {
+      latest = e;
+      if (rafId === 0) rafId = requestAnimationFrame(apply);
+    };
+    const end = (): void => {
+      if (rafId !== 0) cancelAnimationFrame(rafId);
+      rafId = 0;
+      latest = null;
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+    window.addEventListener("blur", end, { once: true });
+    // Keep the gesture on the handle even if the cursor outruns it; older
+    // webviews without pointer capture still deliver moves while held.
+    try {
+      handle.setPointerCapture?.(anchor.pointerId);
+    } catch {
+      // Synthetic pointers (tests) or capture-less webviews: harmless.
+    }
+  })();
+}
+
+/** Whether the backend performs programmatic resize drags itself. tao
+ * implements `drag_resize_window` on Windows/Linux but is a silent no-op
+ * on macOS (the IPC resolves, the window never moves), so macOS goes
+ * straight to the manual drag instead of offering a dead gesture first. */
+function nativeResizeDragSupported(): boolean {
+  try {
+    const userAgentData = (
+      navigator as Navigator & { userAgentData?: { platform?: string } }
+    ).userAgentData;
+    const platform = userAgentData?.platform ?? navigator.platform ?? "";
+    return !/mac/i.test(platform);
+  } catch {
+    return true;
+  }
+}
+
+for (const handle of document.querySelectorAll<HTMLElement>(".resize-handle")) {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.isPrimary === false) return;
+    const raw = handle.dataset.direction ?? "";
+    if (!RESIZE_DIRECTIONS.has(raw as ResizeDirection)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const direction = raw as ResizeDirection;
+    if (!nativeResizeDragSupported()) {
+      beginManualResize(handle, e, direction);
+      return;
+    }
+    const appWindow = getCurrentWindow();
+    void appWindow.startResizeDragging(direction).catch(() => {
+      beginManualResize(handle, e, direction);
+    });
+  });
+}
 
 /** The chip the cursor is over (logical coords), or -1 when in between. */
 function chipAtPointer(): number {
@@ -1079,9 +1466,9 @@ root.addEventListener("click", () => {
 let settingsOpen = false;
 let actionsOpen = false;
 
-/** Whether any panel (settings or actions) is currently open. */
+/** Whether any dialog (settings, actions or the update popup) is open. */
 function panelOpen(): boolean {
-  return settingsOpen || actionsOpen;
+  return settingsOpen || actionsOpen || updatePopupOpen;
 }
 
 /** Close whichever panel is open (never both: they are mutually exclusive). */
@@ -1092,6 +1479,7 @@ function closePanels(): void {
 
 function openSettings(): void {
   if (settingsOpen || overlay.phase !== "visible") return;
+  if (updatePopupOpen) closeUpdatePopup();
   if (actionsOpen) closeActions();
   settingsOpen = true;
   settingsError.textContent = "";
@@ -1112,11 +1500,12 @@ function openSettings(): void {
     })
     .catch(() => {});
   focusPanel(settingsPanel);
-  settingsPanel.querySelector<HTMLElement>("#settings-lang")?.focus();
+  settingsPanel.querySelector<HTMLElement>("#settings-theme")?.focus();
 }
 
 function openActions(): void {
   if (actionsOpen || overlay.phase !== "visible") return;
+  if (updatePopupOpen) closeUpdatePopup();
   if (settingsOpen) closeSettings();
   actionsOpen = true;
   actionsError.textContent = "";
@@ -1140,7 +1529,6 @@ function focusPanel(panel: HTMLElement): void {
   hub.tabIndex = -1;
   addBtn.tabIndex = -1;
   minimize.tabIndex = -1;
-  updateBtn.tabIndex = -1;
   input.tabIndex = -1;
   root.classList.add("panel");
   panel.classList.add("open");
@@ -1155,7 +1543,7 @@ function releasePanel(): void {
   addBtn.tabIndex = 0;
   minimize.tabIndex = 0;
   input.tabIndex = 0;
-  syncUpdateBtn();
+  syncSettingsUpdateBtn();
 }
 
 function closeSettings(): void {
@@ -1169,6 +1557,7 @@ function closeSettings(): void {
   releasePanel();
   refilter();
   if (overlay.phase === "visible") input.focus();
+  maybeShowUpdatePopup();
 }
 
 function closeActions(): void {
@@ -1183,6 +1572,7 @@ function closeActions(): void {
   releasePanel();
   refilter();
   if (overlay.phase === "visible") input.focus();
+  maybeShowUpdatePopup();
 }
 
 function rebuildActionsRows(): void {
@@ -1394,10 +1784,12 @@ async function getInstalledApps(): Promise<InstalledApp[]> {
 }
 
 function filterApps(apps: InstalledApp[], query: string): InstalledApp[] {
-  const q = query.toLowerCase();
+  // Same contract as the circle search: normalized, case-/accent-insensitive
+  // substring on the name; blank queries list everything (capped at 200).
+  const q = normalizeQuery(query);
   const out: InstalledApp[] = [];
   for (const app of apps) {
-    if (q.length === 0 || app.name.toLowerCase().includes(q)) out.push(app);
+    if (q.length === 0 || normalizeName(app.name).includes(q)) out.push(app);
     if (out.length >= 200) break;
   }
   return out;
@@ -3185,10 +3577,24 @@ async function init(): Promise<void> {
       root.classList.add("open");
       ensureLoop();
       input.focus();
+      // A deferred "next open" install takes over the open: no prompt.
+      if (shouldAutoInstallOnOpen()) {
+        void installUpdate();
+        return;
+      }
+      // An install started earlier keeps showing its progress.
+      if (
+        (updatePhase === "downloading" || updatePhase === "installing") &&
+        pendingUpdate
+      ) {
+        openUpdatePopupForProgress();
+        return;
+      }
       void checkForUpdate();
     }),
     listen("overlay-close", () => {
       closePanels();
+      closeUpdatePopup();
       overlay.close();
       root.classList.remove("open");
       ensureLoop();

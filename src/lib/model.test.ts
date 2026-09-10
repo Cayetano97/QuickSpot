@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   backspaceCodepoint,
   capUtf8Bytes,
+  countMatches,
   filterActions,
   groupActions,
   hexLuminance,
@@ -9,8 +10,11 @@ import {
   isReadableOnDark,
   isSequenceStepKind,
   isValidSequenceAction,
+  matchesQuery,
   MAX_SEQUENCE_STEPS,
   moveSelection,
+  normalizeName,
+  normalizeQuery,
   normalizeSequenceSteps,
   slugify,
   uniqueGroupId,
@@ -48,6 +52,70 @@ describe("filterActions", () => {
 
   it("returns an empty list when nothing matches", () => {
     expect(filterActions(actions, "zzz")).toEqual([]);
+  });
+
+  it("treats whitespace-only queries as empty (matches everything)", () => {
+    expect(filterActions(actions, "   ")).toEqual([0, 1, 2, 3]);
+    expect(filterActions(actions, "\t \n")).toEqual([0, 1, 2, 3]);
+    expect(countMatches(actions, "   ")).toBe(actions.length);
+  });
+
+  it("trims and collapses whitespace around and inside the query", () => {
+    expect(filterActions(actions, "  github  ")).toEqual([1]);
+    expect(filterActions(actions, "native   sdk")).toEqual([2]);
+    expect(filterActions(actions, "\tGitHub\n")).toEqual([1]);
+  });
+
+  it("is accent-insensitive on both sides", () => {
+    const accented: Action[] = [
+      { name: "Canción", kind: "url", value: "https://example.com/1" },
+      { name: "Über", kind: "url", value: "https://example.com/2" },
+    ];
+    expect(filterActions(accented, "cancion")).toEqual([0]);
+    expect(filterActions(accented, "canción")).toEqual([0]);
+    expect(filterActions(accented, "uber")).toEqual([1]);
+    expect(filterActions(accented, "über")).toEqual([1]);
+  });
+
+  it("keeps countMatches consistent with filterActions (uncapped)", () => {
+    for (const q of ["", "   ", "g", "  G  ", "o", "zzz", "native  sdk"]) {
+      const filtered = filterActions(actions, q);
+      const total = countMatches(actions, q);
+      expect(total).toBeGreaterThanOrEqual(filtered.length);
+      if (total <= 8) expect(filtered).toHaveLength(total);
+    }
+  });
+});
+
+describe("normalizeQuery", () => {
+  it("trims, collapses whitespace, lowercases and strips diacritics", () => {
+    expect(normalizeQuery("  Héllo   Wörld  ")).toBe("hello world");
+    expect(normalizeQuery("   ")).toBe("");
+    expect(normalizeQuery("\tGitHub\n")).toBe("github");
+    expect(normalizeQuery("Canción")).toBe("cancion");
+  });
+
+  it("never throws on nullish input", () => {
+    expect(normalizeQuery(null)).toBe("");
+    expect(normalizeQuery(undefined)).toBe("");
+  });
+});
+
+describe("matchesQuery", () => {
+  it("matches blank queries against everything", () => {
+    expect(matchesQuery("GitHub", "")).toBe(true);
+    expect(matchesQuery("GitHub", "   ")).toBe(true);
+  });
+
+  it("matches normalized substrings", () => {
+    expect(matchesQuery("Native SDK docs", "native sdk")).toBe(true);
+    expect(matchesQuery("Native SDK docs", "  NATIVE   sdk  ")).toBe(true);
+    expect(matchesQuery("Canción", "cancion")).toBe(true);
+    expect(matchesQuery("GitHub", "zzz")).toBe(false);
+  });
+
+  it("agrees with normalizeName", () => {
+    expect(normalizeName("  Wörk  ")).toBe("work");
   });
 });
 

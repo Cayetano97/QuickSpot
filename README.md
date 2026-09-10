@@ -128,6 +128,16 @@ A `sequence` fans out to its steps in order (e.g. open a folder, then a URL);
 pick `Sequence` as the type and add up to 5 steps, each with its own type and
 value (same pickers as single actions, no nested sequences).
 
+## AI agents (MCP)
+
+QuickSpot ships a MCP so any AI agent (OpenCode, Claude Code,
+Claude Desktop, Cursor, VS Code Copilot, Windsurf, Gemini CLI, Codex CLI) can list, create, update and
+delete your actions in `quickspot.config.json` — with the same validation as
+the app. Grab `quickspot.mcpb` (Claude Desktop, one click) or `quickspot-mcp.js`
+from the **Releases** tab, then follow [`mcp-quickspot/INSTALL.md`](mcp-quickspot/INSTALL.md)
+(one command, macOS / Windows / Linux; opt-in, it asks before installing). After each change press `Cmd/Ctrl+R` in
+QuickSpot to reload.
+
 ## Testing
 
 - **Frontend** — `npm test` (Vitest): filter semantics, selection wrapping,

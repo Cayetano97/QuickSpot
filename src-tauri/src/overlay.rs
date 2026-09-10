@@ -102,7 +102,19 @@ fn build_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("index.html".into()))
         .title("QuickSpot")
         .inner_size(680.0, 740.0)
-        .resizable(false)
+        // Resizable on every OS: the launcher disc keeps its fixed 520x580
+        // canvas centered, while the settings/actions panels are fluid
+        // (viewport-relative) and grow/shrink with the window. `decorations`
+        // stays false so the overlay keeps its borderless look; edge/corner
+        // drags are initiated from the panels' resize handles via the
+        // frontend `startResizeDragging` API (native per-OS drag:
+        // WM_NCHITTEST on Windows, NSWindow resize on macOS; where the
+        // backend reports it unsupported the frontend falls back to driving
+        // `setSize`/`setPosition` itself). The min/max
+        // clamp keeps the launcher usable and the shadow inside the screen.
+        .resizable(true)
+        .min_inner_size(480.0, 600.0)
+        .max_inner_size(1100.0, 900.0)
         .maximizable(false)
         .decorations(false)
         .transparent(true)
@@ -197,6 +209,13 @@ fn emit(app: &AppHandle, name: &str) {
 
 /// Center the window on the work area of the monitor containing the
 /// cursor, in physical px (fall back to the primary monitor).
+pub fn center_on_cursor_monitor(app: &AppHandle) -> tauri::Result<()> {
+    let Some(win) = window(app) else {
+        return Err(tauri::Error::WindowNotFound);
+    };
+    reposition_to_cursor_monitor(app, &win)
+}
+
 fn reposition_to_cursor_monitor(app: &AppHandle, win: &WebviewWindow) -> tauri::Result<()> {
     let cursor = app.cursor_position()?;
     let monitor = match app.monitor_from_point(cursor.x, cursor.y)? {

@@ -137,6 +137,13 @@ pub fn save_config(
     Ok(())
 }
 
+/// Double-click on the grip: re-center the overlay on the work area of
+/// the monitor under the cursor (same placement as every open).
+#[tauri::command]
+pub fn center_window(app: AppHandle) -> Result<(), String> {
+    overlay::center_on_cursor_monitor(&app).map_err(|e| e.to_string())
+}
+
 /// Start a native window drag from the grip and arm the clamp watchdog.
 #[tauri::command]
 pub fn drag_start(app: AppHandle) {

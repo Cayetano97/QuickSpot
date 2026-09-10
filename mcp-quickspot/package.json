@@ -1,0 +1,32 @@
+{
+  "name": "quickspot-mcp",
+  "version": "0.1.0",
+  "description": "MCP server to list/create/update/delete QuickSpot actions from any AI agent (local stdio, edits quickspot.config.json)",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "quickspot-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "mcpb/manifest.json",
+    "README.md",
+    "INSTALL.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack-mcpb": "node scripts/pack-mcpb.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

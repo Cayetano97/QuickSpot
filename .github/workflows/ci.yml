@@ -23,6 +23,25 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  mcp:
+    name: MCP server · typecheck + Vitest + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp-quickspot/package-lock.json
+      - run: npm ci
+        working-directory: mcp-quickspot
+      - run: npm run typecheck
+        working-directory: mcp-quickspot
+      - run: npm test
+        working-directory: mcp-quickspot
+      - run: npm run build
+        working-directory: mcp-quickspot
+
   backend:
     name: Backend · cargo test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

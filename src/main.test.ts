@@ -36,6 +36,42 @@ vi.mock("@tauri-apps/plugin-dialog", () => dialog);
 const processPlugin = vi.hoisted(() => ({ relaunch: vi.fn() }));
 vi.mock("@tauri-apps/plugin-process", () => processPlugin);
 
+const windowApi = vi.hoisted(() => {
+  const startResizeDragging = vi.fn();
+  const setSize = vi.fn();
+  const setPosition = vi.fn();
+  const scaleFactor = vi.fn();
+  const outerPosition = vi.fn();
+  const currentWindow = {
+    startResizeDragging,
+    setSize,
+    setPosition,
+    scaleFactor,
+    outerPosition,
+  };
+  return {
+    startResizeDragging,
+    setSize,
+    setPosition,
+    scaleFactor,
+    outerPosition,
+    getCurrentWindow: vi.fn(() => currentWindow),
+    LogicalSize: class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+    },
+    LogicalPosition: class {
+      constructor(
+        public x: number,
+        public y: number,
+      ) {}
+    },
+  };
+});
+vi.mock("@tauri-apps/api/window", () => windowApi);
+
 const ACTIONS: Action[] = [
   { name: "Vercel", kind: "url", value: "https://vercel.com" },
   { name: "GitHub", kind: "url", value: "https://github.com" },
@@ -56,6 +92,33 @@ function flush(): Promise<void> {
   const ticks = [];
   for (let i = 0; i < 20; i++) ticks.push(Promise.resolve());
   return Promise.all(ticks).then(() => undefined);
+}
+
+/** In-memory localStorage: jsdom without an origin has none (opaque origin),
+ * while the real webview does. The updater deferral ("on next open") needs it. */
+function installStorage(): void {
+  const store = new Map<string, string>();
+  const mock: Storage = {
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    clear: () => {
+      store.clear();
+    },
+    get length() {
+      return store.size;
+    },
+    key: (index: number) => [...store.keys()][index] ?? null,
+  };
+  Object.defineProperty(window, "localStorage", {
+    value: mock,
+    writable: true,
+    configurable: true,
+  });
 }
 
 /** Stub the animation clock and the rAF loop; frames only advance on demand. */
@@ -89,8 +152,23 @@ function installDom(): void {
       <div id="empty-state" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="run-error" role="alert" aria-live="assertive" aria-hidden="true"></div>
       <button id="minimize"></button>
-      <button id="update"><span class="update-label"></span></button>
       <div id="grip"></div>
+      <div id="update-popup" role="dialog" aria-modal="true" aria-labelledby="update-popup-title" aria-hidden="true">
+        <div id="update-popup-card">
+          <div id="update-popup-header">
+            <span id="update-popup-title">Update available</span>
+            <button id="update-popup-close" type="button" aria-label="Close"></button>
+          </div>
+          <p id="update-popup-desc"></p>
+          <p id="update-popup-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          <span id="update-popup-error" role="alert" aria-live="assertive"></span>
+          <div id="update-popup-actions">
+            <button id="update-popup-later" type="button">Later</button>
+            <button id="update-popup-next" type="button">On next open</button>
+            <button id="update-popup-now" type="button">Update now</button>
+          </div>
+        </div>
+      </div>
       <form id="settings" role="dialog" aria-modal="true" aria-hidden="true">
         <div id="settings-header">
           <span id="settings-title">Settings</span>
@@ -99,25 +177,13 @@ function installDom(): void {
           </button>
         </div>
         <div id="settings-rows">
-          <section class="settings-section" id="settings-general" aria-labelledby="settings-general-heading">
-            <h2 class="settings-section-title" id="settings-general-heading">General</h2>
+          <section class="settings-section" id="settings-appearance" aria-labelledby="settings-appearance-heading">
+            <h2 class="settings-section-title" id="settings-appearance-heading">Appearance</h2>
             <div class="settings-list">
               <div class="settings-list-row">
-                <label class="settings-row-label" for="settings-theme" id="settings-theme-label">Appearance</label>
-                <select id="settings-theme" aria-label="Appearance"></select>
+                <label class="settings-row-label" for="settings-theme" id="settings-theme-label">Theme</label>
+                <select id="settings-theme" aria-label="Theme"></select>
               </div>
-              <div class="settings-list-row">
-                <label class="settings-row-label" for="settings-lang" id="settings-language-label">Language</label>
-                <select id="settings-lang" aria-label="Language"></select>
-                <p class="settings-translators" id="settings-translators"></p>
-              </div>
-              <label class="settings-list-row">
-                <span class="settings-row-label" id="settings-dock-label">Magnify on hover</span>
-                <span class="switch">
-                  <input id="settings-magnify" type="checkbox" />
-                  <span class="switch-track"></span>
-                </span>
-              </label>
               <label class="settings-list-row">
                 <span class="settings-row-label" id="settings-icons-label">Show action icons</span>
                 <span class="switch">
@@ -126,12 +192,34 @@ function installDom(): void {
                 </span>
               </label>
               <label class="settings-list-row">
+                <span class="settings-row-label" id="settings-dock-label">Magnify on hover</span>
+                <span class="switch">
+                  <input id="settings-magnify" type="checkbox" />
+                  <span class="switch-track"></span>
+                </span>
+              </label>
+            </div>
+          </section>
+          <section class="settings-section" id="settings-general" aria-labelledby="settings-general-heading">
+            <h2 class="settings-section-title" id="settings-general-heading">General</h2>
+            <div class="settings-list">
+              <div class="settings-list-row">
+                <label class="settings-row-label" for="settings-lang" id="settings-language-label">Language</label>
+                <select id="settings-lang" aria-label="Language"></select>
+                <p class="settings-translators" id="settings-translators"></p>
+              </div>
+              <label class="settings-list-row">
                 <span class="settings-row-label" id="settings-autostart-label">Launch at login</span>
                 <span class="switch">
                   <input id="settings-autostart" type="checkbox" />
                   <span class="switch-track"></span>
                 </span>
               </label>
+            </div>
+          </section>
+          <section class="settings-section" id="settings-updates" aria-labelledby="settings-updates-heading">
+            <h2 class="settings-section-title" id="settings-updates-heading">Updates</h2>
+            <div class="settings-list">
               <div class="settings-list-row">
                 <span class="settings-row-label" id="settings-update-label">Check for updates</span>
                 <button id="settings-update-check" type="button">Check now</button>
@@ -144,6 +232,14 @@ function installDom(): void {
           <span id="settings-error"></span>
           <button id="settings-save" type="submit">Save</button>
         </div>
+        <span class="resize-handle rh-n" data-direction="North" aria-hidden="true"></span>
+        <span class="resize-handle rh-s" data-direction="South" aria-hidden="true"></span>
+        <span class="resize-handle rh-e" data-direction="East" aria-hidden="true"></span>
+        <span class="resize-handle rh-w" data-direction="West" aria-hidden="true"></span>
+        <span class="resize-handle rh-ne" data-direction="NorthEast" aria-hidden="true"></span>
+        <span class="resize-handle rh-nw" data-direction="NorthWest" aria-hidden="true"></span>
+        <span class="resize-handle rh-se" data-direction="SouthEast" aria-hidden="true"></span>
+        <span class="resize-handle rh-sw" data-direction="SouthWest" aria-hidden="true"></span>
       </form>
       <form id="actions" role="dialog" aria-modal="true" aria-hidden="true">
         <div id="actions-header">
@@ -161,6 +257,14 @@ function installDom(): void {
           <button id="actions-save" type="submit">Save</button>
         </div>
         <span id="actions-status" role="status" aria-live="polite" aria-atomic="true"></span>
+        <span class="resize-handle rh-n" data-direction="North" aria-hidden="true"></span>
+        <span class="resize-handle rh-s" data-direction="South" aria-hidden="true"></span>
+        <span class="resize-handle rh-e" data-direction="East" aria-hidden="true"></span>
+        <span class="resize-handle rh-w" data-direction="West" aria-hidden="true"></span>
+        <span class="resize-handle rh-ne" data-direction="NorthEast" aria-hidden="true"></span>
+        <span class="resize-handle rh-nw" data-direction="NorthWest" aria-hidden="true"></span>
+        <span class="resize-handle rh-se" data-direction="SouthEast" aria-hidden="true"></span>
+        <span class="resize-handle rh-sw" data-direction="SouthWest" aria-hidden="true"></span>
       </form>
     </main>`;
 }
@@ -205,6 +309,16 @@ async function mount(config?: {
   dialog.open.mockResolvedValue(null);
   processPlugin.relaunch.mockReset();
   processPlugin.relaunch.mockResolvedValue(undefined);
+  windowApi.startResizeDragging.mockReset();
+  windowApi.startResizeDragging.mockResolvedValue(undefined);
+  windowApi.setSize.mockReset();
+  windowApi.setSize.mockResolvedValue(undefined);
+  windowApi.setPosition.mockReset();
+  windowApi.setPosition.mockResolvedValue(undefined);
+  windowApi.scaleFactor.mockReset();
+  windowApi.scaleFactor.mockResolvedValue(2);
+  windowApi.outerPosition.mockReset();
+  windowApi.outerPosition.mockResolvedValue({ x: 200, y: 200 });
   appApi.getVersion.mockReset();
   if (config?.version === null) {
     appApi.getVersion.mockRejectedValue(new Error("no runtime"));
@@ -218,6 +332,7 @@ async function mount(config?: {
   });
   installGlobals(opts?.prefersDark ?? false);
   installDom();
+  installStorage();
   await import("./main");
   await flush();
 }
@@ -356,6 +471,35 @@ describe("filtering", () => {
     typeQuery("g");
     typeQuery("");
     expect(visibleChips()).toBe(4);
+  });
+
+  it("treats whitespace-only queries as empty: shows everything, no error", async () => {
+    await openOverlay();
+    typeQuery("   ");
+    expect(visibleChips()).toBe(4);
+    expect(document.querySelector("#empty-state")!.textContent).toBe("");
+    expect(document.querySelector("#empty-state")!.classList.contains("visible")).toBe(false);
+    expect(document.querySelector("#query-mirror")!.textContent).toBe("Type to search...");
+    expect(document.querySelector("#query-wrap")!.classList.contains("active")).toBe(false);
+  });
+
+  it("trims and collapses spaces when matching", () => {
+    typeQuery("  git  ");
+    expect(chipLabels()[0]).toBe("GitHub");
+    expect(visibleChips()).toBe(1);
+    typeQuery("native   sdk");
+    expect(chipLabels()[0]).toBe("Native SDK docs");
+    expect(visibleChips()).toBe(1);
+  });
+
+  it("matches accents insensitively", async () => {
+    await mount({
+      actions: [{ name: "Canción", kind: "url", value: "https://example.com" }],
+    });
+    typeQuery("cancion");
+    expect(visibleChips()).toBe(1);
+    typeQuery("canción");
+    expect(visibleChips()).toBe(1);
   });
 
   it("caps the query at 256 UTF-8 bytes without splitting a codepoint", () => {
@@ -687,7 +831,10 @@ describe("settings panel", () => {
       (o) => o.textContent,
     );
     expect(esLabels).toEqual(["Sistema", "Claro", "Oscuro", "Negro profundo"]);
-    expect(document.querySelector("#settings-theme-label")!.textContent).toBe("Apariencia");
+    expect(document.querySelector("#settings-theme-label")!.textContent).toBe("Tema");
+    expect(document.querySelector("#settings-appearance-heading")!.textContent).toBe("Apariencia");
+    expect(document.querySelector("#settings-updates-heading")!.textContent).toBe("Actualizaciones");
+    expect(document.querySelector("#settings-general-heading")!.textContent).toBe("General");
   });
 });
 
@@ -1616,44 +1763,48 @@ describe("group actions button", () => {
   });
 });
 
-describe("updater", () => {
-  const FAKE_UPDATE = () => ({
-    version: "0.2.0",
+describe("update popup", () => {
+  const FAKE_UPDATE = (version = "0.2.0") => ({
+    version,
     date: "2026-08-13T00:00:00Z",
     body: "",
     downloadAndInstall: vi.fn().mockResolvedValue(undefined),
   });
 
-  it("stays hidden and out of tab order when no update is available", async () => {
+  const popup = (): HTMLElement => document.querySelector<HTMLElement>("#update-popup")!;
+  const isOpen = (): boolean => popup().classList.contains("open");
+
+  it("stays hidden when no update is available", async () => {
     await openOverlay();
-    const btn = document.querySelector<HTMLButtonElement>("#update")!;
-    expect(btn.style.opacity).toBe("0");
-    expect(btn.tabIndex).toBe(-1);
-    expect(btn.disabled).toBe(false);
+    expect(isOpen()).toBe(false);
+    expect(document.querySelector("#update")).toBeNull();
   });
 
-  it("reveals a blue pill with the target version when an update is found", async () => {
+  it("shows the popup with the target version when an update is found", async () => {
     await mount();
     updater.check.mockResolvedValue(FAKE_UPDATE());
     await openOverlay();
-    const btn = document.querySelector<HTMLButtonElement>("#update")!;
-    expect(btn.style.opacity).toBe("1");
-    expect(btn.tabIndex).toBe(0);
-    expect(document.querySelector("#update .update-label")!.textContent).toBe("Update to v0.2.0");
+    expect(isOpen()).toBe(true);
+    expect(document.querySelector("#update-popup-desc")!.textContent).toBe(
+      "QuickSpot v0.2.0 is available.",
+    );
+    expect(document.querySelector<HTMLButtonElement>("#update-popup-now")!.textContent).toBe(
+      "Update now",
+    );
   });
 
-  it("clicking downloads, installs and relaunches into the new version", async () => {
+  it("update now downloads, installs and relaunches into the new version", async () => {
     await mount();
     const update = FAKE_UPDATE();
     updater.check.mockResolvedValue(update);
     await openOverlay();
-    document.querySelector<HTMLButtonElement>("#update")!.click();
+    document.querySelector<HTMLButtonElement>("#update-popup-now")!.click();
     await flush();
     expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
     expect(processPlugin.relaunch).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the download progress on the pill", async () => {
+  it("shows the download progress in the popup and disables its buttons", async () => {
     await mount();
     const update = FAKE_UPDATE();
     let resolveInstall!: () => void;
@@ -1668,38 +1819,90 @@ describe("updater", () => {
     });
     updater.check.mockResolvedValue(update);
     await openOverlay();
-    document.querySelector<HTMLButtonElement>("#update")!.click();
+    document.querySelector<HTMLButtonElement>("#update-popup-now")!.click();
     await flush();
-    expect(document.querySelector("#update .update-label")!.textContent).toBe("Downloading 60%");
-    expect(document.querySelector<HTMLButtonElement>("#update")!.disabled).toBe(true);
+    expect(document.querySelector("#update-popup-status")!.textContent).toBe("Downloading 60%");
+    expect(document.querySelector<HTMLButtonElement>("#update-popup-now")!.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>("#update-popup-later")!.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>("#update-popup-next")!.disabled).toBe(true);
     resolveInstall();
     await flush();
-    expect(document.querySelector("#update .update-label")!.textContent).toBe("Installing…");
+    expect(document.querySelector("#update-popup-status")!.textContent).toBe("Installing…");
   });
 
-  it("reverts to the update pill when the download fails", async () => {
+  it("reports a failed install in the popup and re-enables its buttons", async () => {
     await mount();
     const update = FAKE_UPDATE();
     update.downloadAndInstall = vi.fn().mockRejectedValue(new Error("network"));
     updater.check.mockResolvedValue(update);
     await openOverlay();
-    const btn = document.querySelector<HTMLButtonElement>("#update")!;
-    btn.click();
+    document.querySelector<HTMLButtonElement>("#update-popup-now")!.click();
     await flush();
-    expect(document.querySelector("#update .update-label")!.textContent).toBe("Update to v0.2.0");
-    expect(btn.disabled).toBe(false);
+    expect(isOpen()).toBe(true);
+    expect(document.querySelector("#update-popup-error")!.textContent).toBe(
+      "Couldn't install: network",
+    );
+    expect(document.querySelector<HTMLButtonElement>("#update-popup-now")!.disabled).toBe(false);
   });
 
-  it("localizes the pill label", async () => {
+  it("later snoozes this version until a manual check or a new version", async () => {
     await mount();
     updater.check.mockResolvedValue(FAKE_UPDATE());
     await openOverlay();
-    document.querySelector<HTMLButtonElement>("#hub")!.click();
-    const select = document.querySelector<HTMLSelectElement>("#settings-lang")!;
-    select.value = "es";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(isOpen()).toBe(true);
+    document.querySelector<HTMLButtonElement>("#update-popup-later")!.click();
+    expect(isOpen()).toBe(false);
+    // Next auto open is throttled/snoozed: no popup for the same version.
+    await openOverlay();
+    expect(isOpen()).toBe(false);
+  });
+
+  it("on next open defers and auto-installs without prompting", async () => {
+    await mount();
+    const update = FAKE_UPDATE();
+    updater.check.mockResolvedValue(update);
+    await openOverlay();
+    expect(isOpen()).toBe(true);
+    document.querySelector<HTMLButtonElement>("#update-popup-next")!.click();
+    expect(isOpen()).toBe(false);
+    expect(window.localStorage.getItem("quickspot.update.nextOpenVersion")).toBe("0.2.0");
+    // Next overlay open auto-installs the deferred version.
+    eventHandlers["overlay-open"]?.({ payload: undefined });
     await flush();
-    expect(document.querySelector("#update .update-label")!.textContent).toBe("Actualizar a v0.2.0");
+    expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(processPlugin.relaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("escape dismisses the popup like later", async () => {
+    await mount();
+    updater.check.mockResolvedValue(FAKE_UPDATE());
+    await openOverlay();
+    expect(isOpen()).toBe(true);
+    document
+      .querySelector<HTMLInputElement>("#query")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(isOpen()).toBe(false);
+    await openOverlay();
+    expect(isOpen()).toBe(false);
+  });
+
+  it("localizes the popup", async () => {
+    await mount({ language: "es" });
+    updater.check.mockResolvedValue(FAKE_UPDATE());
+    await openOverlay();
+    expect(isOpen()).toBe(true);
+    expect(document.querySelector("#update-popup-desc")!.textContent).toBe(
+      "QuickSpot v0.2.0 está disponible.",
+    );
+    expect(document.querySelector<HTMLButtonElement>("#update-popup-now")!.textContent).toBe(
+      "Actualizar ahora",
+    );
+    expect(document.querySelector<HTMLButtonElement>("#update-popup-later")!.textContent).toBe(
+      "Más tarde",
+    );
+    expect(document.querySelector<HTMLButtonElement>("#update-popup-next")!.textContent).toBe(
+      "En la próxima apertura",
+    );
   });
 });
 
@@ -1974,5 +2177,175 @@ describe("sequence actions", () => {
     document.querySelector<HTMLElement>("#actions-rows")!.dispatchEvent(new Event("scroll"));
     expect(stepListbox.hidden).toBe(true);
     vi.spyOn(Date, "now").mockRestore?.();
+  });
+});
+
+describe("panel resize", () => {
+  function pressHandle(selector: string, init: PointerEventInit = {}): HTMLElement {
+    const handle = document.querySelector<HTMLElement>(selector)!;
+    handle.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        isPrimary: true,
+        clientX: 100,
+        clientY: 100,
+        pointerId: 7,
+        ...init,
+      }),
+    );
+    return handle;
+  }
+
+  it("starts a native OS resize drag from a panel handle", async () => {
+    await mount();
+    pressHandle("#actions .rh-se");
+    await flush();
+    expect(windowApi.startResizeDragging).toHaveBeenCalledTimes(1);
+    expect(windowApi.startResizeDragging).toHaveBeenCalledWith("SouthEast");
+    expect(windowApi.setSize).not.toHaveBeenCalled();
+  });
+
+  it("ignores non-primary and non-left presses", async () => {
+    await mount();
+    pressHandle("#actions .rh-se", { button: 2 });
+    pressHandle("#settings .rh-n", { isPrimary: false });
+    await flush();
+    expect(windowApi.startResizeDragging).not.toHaveBeenCalled();
+    expect(windowApi.setSize).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a manual east resize when native drag is unsupported", async () => {
+    await mount();
+    // macOS backend (tao) rejects programmatic resize drags.
+    windowApi.startResizeDragging.mockRejectedValueOnce(new Error("NotSupported"));
+    const handle = pressHandle("#settings .rh-e");
+    await flush();
+    handle.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        clientX: 160,
+        clientY: 100,
+        pointerId: 7,
+      }),
+    );
+    rafCb?.(virtualNow);
+    expect(windowApi.setSize).toHaveBeenCalledTimes(1);
+    const size = windowApi.setSize.mock.calls[0][0] as { width: number; height: number };
+    expect(size).toBeInstanceOf(windowApi.LogicalSize);
+    // jsdom viewport is 1024x768: east grows width only.
+    expect(size.width).toBe(1024 + 60);
+    expect(size.height).toBe(768);
+    expect(windowApi.setPosition).not.toHaveBeenCalled();
+    handle.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 7 }));
+  });
+
+  it("anchors the opposite edge when manually resizing west/north", async () => {
+    await mount();
+    windowApi.startResizeDragging.mockRejectedValueOnce(new Error("NotSupported"));
+    const handle = pressHandle("#actions .rh-nw");
+    await flush();
+    handle.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        clientX: 60,
+        clientY: 70,
+        pointerId: 7,
+      }),
+    );
+    rafCb?.(virtualNow);
+    const size = windowApi.setSize.mock.calls[0][0] as { width: number; height: number };
+    expect(size.width).toBe(1024 + 40);
+    expect(size.height).toBe(768 + 30);
+    // outer (200,200) @2x -> logical (100,100); the south-east corner stays.
+    expect(windowApi.setPosition).toHaveBeenCalledTimes(1);
+    const pos = windowApi.setPosition.mock.calls[0][0] as { x: number; y: number };
+    expect(pos).toBeInstanceOf(windowApi.LogicalPosition);
+    expect(pos.x).toBe(100 - 40);
+    expect(pos.y).toBe(100 - 30);
+    handle.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 7 }));
+  });
+
+  it("drives a manual resize directly on macOS (no native drag backend)", async () => {    const previous = navigator.platform;
+    Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+    try {
+      await mount();
+      const handle = pressHandle("#settings .rh-e");
+      await flush();
+      // tao macOS silently no-ops programmatic drags, so the frontend must
+      // not even offer the gesture: no native call, straight to setSize.
+      expect(windowApi.startResizeDragging).not.toHaveBeenCalled();
+      handle.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: 160,
+          clientY: 100,
+          pointerId: 7,
+        }),
+      );
+      rafCb?.(virtualNow);
+      expect(windowApi.setSize).toHaveBeenCalledTimes(1);
+      const size = windowApi.setSize.mock.calls[0][0] as { width: number; height: number };
+      expect(size.width).toBe(1024 + 60);
+      expect(size.height).toBe(768);
+      handle.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 7 }));
+    } finally {
+      Object.defineProperty(navigator, "platform", { value: previous, configurable: true });
+    }
+  });
+});
+
+describe("panel drag", () => {
+  function dragCalls(): string[] {
+    return invoke.mock.calls
+      .map((call) => call[0] as string)
+      .filter((cmd) => cmd === "drag_start" || cmd === "drag_end");
+  }
+
+  it("starts a native move from the settings header chrome", async () => {
+    await mount();
+    document.querySelector<HTMLElement>("#settings-title")!.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        isPrimary: true,
+        pointerId: 3,
+      }),
+    );
+    expect(dragCalls()).toEqual(["drag_start"]);
+  });
+
+  it("starts a native move from the actions header chrome", async () => {
+    await mount();
+    document.querySelector<HTMLElement>("#actions-header")!.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        isPrimary: true,
+        pointerId: 3,
+      }),
+    );
+    expect(dragCalls()).toEqual(["drag_start"]);
+  });
+
+  it("never hijacks header controls (close keeps working)", async () => {
+    await mount();
+    document.querySelector<HTMLButtonElement>("#settings-close")!.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        isPrimary: true,
+        pointerId: 3,
+      }),
+    );
+    document.querySelector<HTMLButtonElement>("#actions-close")!.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        isPrimary: true,
+        pointerId: 3,
+      }),
+    );
+    expect(dragCalls()).toEqual([]);
   });
 });

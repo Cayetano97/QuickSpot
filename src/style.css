@@ -328,7 +328,10 @@ button {
 #hub:focus-visible,
 #add:focus-visible,
 #minimize:focus-visible,
-#update:focus-visible,
+#update-popup-now:focus-visible,
+#update-popup-later:focus-visible,
+#update-popup-next:focus-visible,
+#update-popup-close:focus-visible,
 .chip:focus-visible,
 #actions-add:focus-visible,
 #actions-group:focus-visible,
@@ -558,57 +561,162 @@ button {
   transform: scale(0.9);
 }
 
-/* ---------------------------------------------------------------- update */
+/* ---------------------------------------------------------- update popup */
 
-/* Subtle blue pill for an available update (OpenCode-style): a quiet,
-   ghost-fill button that appears at the bottom of the disc and turns into
-   a download progress readout while the update is fetched. */
-#update {
+/* Modal update prompt: updates are only offered from this popup and from
+   Settings — never from a pill on the disc. Like Settings/Actions it is
+   just a centered card: no dimmed fullscreen backdrop, so no rectangular
+   veil shows over the transparent window and the round disc (the layer
+   itself stays transparent and only captures backdrop clicks to snooze). */
+#update-popup {
   position: absolute;
-  left: 50%;
-  top: 512px;
-  height: 26px;
-  padding: 0 14px;
-  border-radius: 13px;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  color: var(--update-ink);
-  background: var(--update-fill);
-  border: 1px solid var(--update-border);
+  background: transparent;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  z-index: 2;
-  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease,
-    color var(--duration-fast) ease;
+  z-index: 20;
+  transition: opacity var(--duration-base) ease, visibility 0s linear var(--duration-base);
 }
 
-#update svg {
-  width: 13px;
-  height: 13px;
-  flex: none;
+#update-popup.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+#update-popup-card {
+  width: min(360px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+  border-radius: 20px;
+  background: var(--panel-fill);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  padding: 16px 18px 14px;
+  transform: scale(0.97);
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+#update-popup.open #update-popup-card {
+  transform: scale(1);
+}
+
+#update-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+#update-popup-close {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  color: var(--ink-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+#update-popup-close svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  #update:hover:not(:disabled) {
-    background: var(--update-fill-hover);
-    border-color: var(--update-border-hover);
+  #update-popup-close:hover {
+    color: var(--accent);
+    background: var(--ghost-fill-active);
   }
 }
 
-#update:active:not(:disabled) {
-  transform: translateX(-50%) scale(0.96);
+#update-popup-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--accent);
 }
 
-#update:disabled {
-  color: var(--ink-muted);
-  background: var(--switch-off);
-  border-color: var(--hairline);
+#update-popup-status {
+  margin: 10px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  color: var(--update-ink);
+  min-height: 18px;
+}
+
+#update-popup-status:empty {
+  display: none;
+}
+
+#update-popup-error {
+  display: none;
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--error-ink);
+}
+
+#update-popup-error.visible {
+  display: block;
+}
+
+#update-popup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+#update-popup-now {
+  min-height: 38px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--disc);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  transition: opacity var(--duration-fast) ease;
+}
+
+#update-popup-later,
+#update-popup-next {
+  min-height: 34px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--ghost-fill);
+  border: 1px solid var(--ghost-border);
+  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #update-popup-later:hover,
+  #update-popup-next:hover {
+    background: var(--ghost-fill-active);
+    border-color: var(--hover-border);
+  }
+}
+
+#update-popup-now:disabled,
+#update-popup-later:disabled,
+#update-popup-next:disabled {
+  opacity: 0.55;
   cursor: default;
 }
 
@@ -819,7 +927,6 @@ button {
 #overlay.panel #hub,
 #overlay.panel #add,
 #overlay.panel #minimize,
-#overlay.panel #update,
 #overlay.panel #query-wrap,
 #overlay.panel #query,
 #overlay.panel #chips,
@@ -857,20 +964,30 @@ button {
     visibility 0s linear var(--duration-base);
 }
 
-/* Settings is just a few general options: let it hug its content instead
-   of claiming a full-height sheet. */
+/* Settings groups a handful of options into labeled sections (Appearance /
+   General / Updates, most visible first and maintenance last — Apple HIG +
+   Raycast/Alfred order). It hugs its content but claims a wider sheet than
+   before (400px -> 520px) so rows breathe, and caps its height so the list
+   scrolls instead of clipping on short windows. Fluid: at the default
+   680px OS window this resolves to exactly 520px (680-160), and it tracks
+   native window resizes up to 780px wide. */
 #settings {
-  width: min(400px, calc(100vw - 24px));
+  width: clamp(420px, calc(100vw - 160px), 780px);
+  max-width: calc(100vw - 24px);
   height: auto;
+  max-height: min(760px, calc(100vh - 48px));
 }
 
 /* Actions editor: comfortably larger than before (500x560 -> 620x680) so
-   cards breathe and more rows fit without scrolling. Centered in the 520px
-   launcher canvas it overflows symmetrically into the 680x740 window, which
-   leaves ~30px per side for the drop shadow. */
+   cards breathe and more rows fit without scrolling. Fluid: at the default
+   680x740 OS window this resolves to exactly 620x680, and it tracks native
+   window resizes in both axes. The 30px-per-side margin preserves room for
+   the drop shadow at every size. */
 #actions {
-  width: min(620px, calc(100vw - 24px));
-  height: min(680px, calc(100vh - 24px));
+  width: clamp(480px, calc(100vw - 60px), 980px);
+  max-width: calc(100vw - 24px);
+  height: clamp(480px, calc(100vh - 60px), 820px);
+  max-height: calc(100vh - 24px);
 }
 
 #settings.open,
@@ -882,9 +999,116 @@ button {
   transition-delay: 0s;
 }
 
+/* Native resize handles: the OS window is borderless, so the panels expose
+   their own 10px edge strips + 18px corners. A press on any of them asks
+   Rust to start a native OS resize-drag (`resize_start`), which means the
+   drag itself — snapping, multi-monitor clamping, live reflow — behaves
+   exactly like a decorated window border on each platform. Edges stay
+   invisible (like any window border); only the SE corner shows a faint grip
+   for discoverability. Hidden until the panel opens. */
+.resize-handle {
+  position: absolute;
+  z-index: 5;
+  touch-action: none;
+  display: none;
+}
+
+#settings.open .resize-handle,
+#actions.open .resize-handle {
+  display: block;
+}
+
+.rh-n {
+  left: 12px;
+  right: 12px;
+  top: -5px;
+  height: 10px;
+  cursor: ns-resize;
+}
+
+.rh-s {
+  left: 12px;
+  right: 12px;
+  bottom: -5px;
+  height: 10px;
+  cursor: ns-resize;
+}
+
+.rh-e {
+  top: 12px;
+  bottom: 12px;
+  right: -5px;
+  width: 10px;
+  cursor: ew-resize;
+}
+
+.rh-w {
+  top: 12px;
+  bottom: 12px;
+  left: -5px;
+  width: 10px;
+  cursor: ew-resize;
+}
+
+.rh-ne,
+.rh-nw,
+.rh-se,
+.rh-sw {
+  width: 18px;
+  height: 18px;
+}
+
+.rh-ne {
+  top: -4px;
+  right: -4px;
+  cursor: nesw-resize;
+}
+
+.rh-sw {
+  bottom: -4px;
+  left: -4px;
+  cursor: nesw-resize;
+}
+
+.rh-nw {
+  top: -4px;
+  left: -4px;
+  cursor: nwse-resize;
+}
+
+.rh-se {
+  bottom: -4px;
+  right: -4px;
+  cursor: nwse-resize;
+}
+
+/* SE grip: two faint strokes hinting "drag to resize", visible on hover. */
+.rh-se::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--ink-faint);
+  border-bottom: 2px solid var(--ink-faint);
+  border-bottom-right-radius: 4px;
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #settings.open:hover .rh-se::after,
+  #actions.open:hover .rh-se::after {
+    opacity: 0.7;
+  }
+}
+
 /* Both dialogs share one header anatomy: title left, close right, hairline
    underneath — identical type scale and padding so the panels read as
-   siblings of the same app. */
+   siblings of the same app. Headers double as title bars: dragging from
+   header chrome moves the OS window (see `onPanelHeaderDown`), hence the
+   grab cursors. */
 #settings-header,
 #actions-header {
   display: flex;
@@ -895,6 +1119,13 @@ button {
   font-weight: 600;
   color: var(--accent);
   border-bottom: 1px solid var(--hairline);
+  cursor: grab;
+  touch-action: none;
+}
+
+#settings-header:active,
+#actions-header:active {
+  cursor: grabbing;
 }
 
 #actions-close,
@@ -998,8 +1229,18 @@ button {
   padding: 14px 20px 8px;
 }
 
-#settings-general {
+#settings-appearance,
+#settings-general,
+#settings-updates {
   padding-bottom: 4px;
+}
+
+/* The first section title opens the panel: keep its top padding tight so
+   the header hairline and the first caption read as one rhythm. Following
+   sections keep the full 14px so each group scans as its own block
+   (iOS grouped-list idiom, same voice as Actions/Groups titles). */
+#settings-appearance .settings-section-title {
+  padding-top: 12px;
 }
 
 /* Settings rows use the editor's card language: each setting is its own
@@ -2926,7 +3167,8 @@ label.settings-list-row {
   #run-error,
   #minimize,
   #minimize svg,
-  #update,
+  #update-popup,
+  #update-popup-card,
   #hub .gear,
   #add .plus,
   #overlay.settled .chip,
@@ -2967,7 +3209,7 @@ label.settings-list-row {
   #hub,
   #add,
   #minimize,
-  #update,
+  #update-popup-card,
   .chip,
   #query-wrap,
   #settings,

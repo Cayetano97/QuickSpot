@@ -176,6 +176,7 @@ pub fn run() {
             commands::save_config,
             commands::drag_start,
             commands::drag_end,
+            commands::center_window,
             commands::quit,
         ])
         .run(tauri::generate_context!())

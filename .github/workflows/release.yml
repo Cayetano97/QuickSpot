@@ -6,6 +6,51 @@ on:
       - 'v*'
 
 jobs:
+  build-mcp:
+    name: MCP server assets
+    needs: publish-tauri
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp-quickspot/package-lock.json
+
+      - name: Install MCP dependencies
+        run: npm ci
+        working-directory: mcp-quickspot
+
+      - name: Typecheck + test + build MCP bundle
+        run: npm run typecheck && npm test && npm run build
+        working-directory: mcp-quickspot
+
+      - name: Pack .mcpb for Claude Desktop
+        run: npm run pack-mcpb
+        working-directory: mcp-quickspot
+
+      - name: Stage release assets
+        run: |
+          mkdir -p release-assets
+          cp mcp-quickspot/dist/index.js release-assets/quickspot-mcp.js
+          cp mcp-quickspot/quickspot.mcpb release-assets/quickspot.mcpb
+          cp mcp-quickspot/README.md release-assets/quickspot-mcp-README.md
+          cp mcp-quickspot/INSTALL.md release-assets/quickspot-mcp-INSTALL.md
+          (cd release-assets && sha256sum quickspot-mcp.js quickspot.mcpb > SHA256SUMS.txt)
+
+      # Runs after the Tauri publishers so the tag's GitHub Release already
+      # exists; this step only appends the MCP files to it (no second release).
+      - name: Upload MCP assets to the tag release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: release-assets/*
+
   publish-tauri:
     name: Publish (${{ matrix.platform }})
     permissions:

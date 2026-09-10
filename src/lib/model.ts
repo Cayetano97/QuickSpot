@@ -127,25 +127,66 @@ export function uniqueGroupId(groups: readonly Group[], name: string): string {
 }
 
 /**
- * Case-insensitive substring match on `name`, in config order (never
- * re-orders). Returns the first MAX_VISIBLE matching indices.
+ * Normalize free text for matching: collapse every whitespace run (spaces,
+ * tabs, newlines, NBSP, …) to a single space, trim the edges, lowercase and
+ * strip diacritics. Pure: never throws on `null`/`undefined` (treated as "").
+ *
+ * Rationale: the launcher keeps the raw keystrokes in the input (so the
+ * caret never jumps) and normalizes only for matching. That way
+ * `"  GitHub  "`, `"\\tgithub\\n"` and `"GITHUB"` all match `GitHub`, while
+ * `"   "` (whitespace-only) normalizes to `""` and matches everything
+ * instead of showing a confusing "no matches".
+ */
+export function normalizeQuery(query: string | null | undefined): string {
+  return (query ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/** Normalized form of an action/app name, using the same pipeline as the
+ * query so matching is case-, accent- and whitespace-insensitive
+ * (`"Canción"` ⇔ `"cancion"`, `"Native  SDK"` ⇔ `"native sdk"`). */
+export function normalizeName(name: string | null | undefined): string {
+  return normalizeQuery(name);
+}
+
+/** True when `name` matches the (raw, unnormalized) `query`. A blank query
+ * (empty or whitespace-only) matches every name; otherwise it is a
+ * substring match on the normalized forms, in config order semantics. */
+export function matchesQuery(name: string, query: string): boolean {
+  const q = normalizeQuery(query);
+  if (q.length === 0) return true;
+  return normalizeName(name).includes(q);
+}
+
+/**
+ * Substring match on `name` only (never `value`/`hint`/group: those would
+ * leak paths into the ring and make results noisy), in config order (never
+ * re-orders). The query is normalized (trimmed, whitespace-collapsed,
+ * case- and accent-insensitive); blank queries match everything.
+ * Returns the first MAX_VISIBLE matching indices.
  */
 export function filterActions(actions: readonly Action[], query: string): number[] {
-  const q = query.toLowerCase();
+  const q = normalizeQuery(query);
   const out: number[] = [];
   for (let i = 0; i < actions.length && out.length < MAX_VISIBLE; i++) {
-    if (q.length === 0 || actions[i].name.toLowerCase().includes(q)) out.push(i);
+    if (q.length === 0 || normalizeName(actions[i].name).includes(q)) out.push(i);
   }
   return out;
 }
 
 /** Count of every action matching the query (uncapped); filterActions caps
- * its return at MAX_VISIBLE, and the launcher shows the delta as "N more". */
+ * its return at MAX_VISIBLE, and the launcher shows the delta as "N more".
+ * Shares `normalizeQuery` with `filterActions`, so both always agree on
+ * what "matches" means (including blank-query-matches-all). */
 export function countMatches(actions: readonly Action[], query: string): number {
-  if (query.length === 0) return actions.length;
-  const q = query.toLowerCase();
+  const q = normalizeQuery(query);
+  if (q.length === 0) return actions.length;
   let n = 0;
-  for (const a of actions) if (a.name.toLowerCase().includes(q)) n++;
+  for (const a of actions) if (normalizeName(a.name).includes(q)) n++;
   return n;
 }
 
