@@ -230,6 +230,7 @@ export function createServer(): McpServer {
       const [item] = config.actions.splice(idx, 1);
       const to = Math.max(0, Math.min(input.to, config.actions.length));
       config.actions.splice(to, 0, item);
+      saveTo(path, config);
       return textResult(`"${item.name}" moved to position ${to}. ${RELOAD_HINT}`);
     },
   );
