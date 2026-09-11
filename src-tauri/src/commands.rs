@@ -137,11 +137,18 @@ pub fn save_config(
     Ok(())
 }
 
-/// Double-click on the grip: re-center the overlay on the work area of
-/// the monitor under the cursor (same placement as every open).
+/// Double-press on the grip: re-center the overlay on the work area of
+/// the monitor under the cursor (same placement as every open). Failures
+/// are logged: the frontend fires this while a button is still physically
+/// held, so a silent error would be indistinguishable from "nothing
+/// happens" (the Windows-only symptom this command once had).
 #[tauri::command]
 pub fn center_window(app: AppHandle) -> Result<(), String> {
-    overlay::center_on_cursor_monitor(&app).map_err(|e| e.to_string())
+    overlay::center_on_cursor_monitor(&app).map_err(|e| {
+        let msg = e.to_string();
+        eprintln!("[quickspot] center_window: {msg}");
+        msg
+    })
 }
 
 /// Start a native window drag from the grip and arm the clamp watchdog.

@@ -2349,3 +2349,94 @@ describe("panel drag", () => {
     expect(dragCalls()).toEqual([]);
   });
 });
+
+describe("grip double-press to recenter", () => {
+  // The DOM `dblclick` never fires on Windows: `drag_start` posts
+  // WM_NCLBUTTONDOWN and the OS modal move loop swallows the pointerup /
+  // click the browser needs to synthesize it (tauri-apps/tauri#10767). The
+  // recenter is therefore detected from two `pointerdown`s, which always
+  // arrive. `performance.now` is stubbed to `virtualNow` (see
+  // installGlobals), so the double window is driven deterministically.
+  function pressGrip(x: number, y: number, button = 0): void {
+    document.querySelector<HTMLElement>("#grip")!.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button,
+        clientX: x,
+        clientY: y,
+        pointerId: 1,
+      }),
+    );
+  }
+
+  function gripPresses(): string[] {
+    return invoke.mock.calls
+      .map((call) => call[0] as string)
+      .filter((cmd) => cmd === "drag_start" || cmd === "drag_end" || cmd === "center_window");
+  }
+
+  it("recenters on two quick presses at the same spot without a second drag", async () => {
+    await mount();
+    pressGrip(100, 100);
+    virtualNow += 200;
+    pressGrip(102, 101);
+    await flush();
+    expect(gripPresses()).toEqual(["drag_start", "drag_end", "center_window"]);
+  });
+
+  it("starts two drags when the presses are far apart in time", async () => {
+    await mount();
+    pressGrip(100, 100);
+    virtualNow += 600;
+    pressGrip(100, 100);
+    await flush();
+    expect(gripPresses()).toEqual(["drag_start", "drag_start"]);
+  });
+
+  it("starts two drags when the presses are far apart in space", async () => {
+    await mount();
+    pressGrip(100, 100);
+    virtualNow += 200;
+    pressGrip(200, 100);
+    await flush();
+    expect(gripPresses()).toEqual(["drag_start", "drag_start"]);
+  });
+
+  it("ignores non-left buttons", async () => {
+    await mount();
+    pressGrip(100, 100, 2);
+    virtualNow += 100;
+    pressGrip(100, 100, 2);
+    await flush();
+    expect(gripPresses()).toEqual([]);
+  });
+
+  it("consumes the double so a third quick press starts a fresh drag", async () => {
+    await mount();
+    pressGrip(100, 100);
+    virtualNow += 200;
+    pressGrip(100, 100);
+    await flush();
+    expect(gripPresses()).toEqual(["drag_start", "drag_end", "center_window"]);
+    virtualNow += 200;
+    pressGrip(100, 100);
+    await flush();
+    expect(gripPresses()).toEqual(["drag_start", "drag_end", "center_window", "drag_start"]);
+  });
+
+  it("swallows the trailing click after a recenter", async () => {
+    await mount();
+    pressGrip(100, 100);
+    virtualNow += 200;
+    pressGrip(100, 100);
+    await flush();
+    const swallowed = document
+      .querySelector<HTMLElement>("#grip")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(swallowed).toBe(false);
+    const next = document
+      .querySelector<HTMLElement>("#grip")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(next).toBe(true);
+  });
+});

@@ -38,14 +38,14 @@ import { MAX_SEQUENCE_STEPS } from "./types.js";
 export const SERVER_NAME = "quickspot";
 export const SERVER_VERSION = "0.1.0";
 
-const RELOAD_HINT = "Pulsa Cmd/Ctrl+R en QuickSpot (o bandeja -> Reload config) para ver los cambios.";
+const RELOAD_HINT = "Press Cmd/Ctrl+R in QuickSpot (or tray -> Reload config) to see the changes.";
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
 function summarizeActions(actions: Action[]): string {
-  if (actions.length === 0) return "(sin acciones)";
+  if (actions.length === 0) return "(no actions)";
   return actions
     .map((a, i) => {
       const extra =
@@ -76,7 +76,7 @@ export function createServer(): McpServer {
   server.registerTool(
     "list-actions",
     {
-      description: "Lista las acciones de QuickSpot (indice, nombre, tipo, valor, grupo). Solo lectura.",
+      description: "List QuickSpot actions (index, name, type, value, group). Read-only.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
@@ -89,14 +89,14 @@ export function createServer(): McpServer {
   server.registerTool(
     "get-config",
     {
-      description: "Devuelve el quickspot.config.json completo (acciones, grupos, idioma, tema) y la ruta resuelta. Solo lectura.",
+      description: "Return the full quickspot.config.json (actions, groups, language, theme) and the resolved path. Read-only.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () => {
       const { config, path, existed } = loadConfig();
       return textResult(
-        `Ruta: ${path} (${existed ? "existe" : "no existe: se muestran valores por defecto"})\n` +
+        `Path: ${path} (${existed ? "exists" : "missing: showing default values"})\n` +
           JSON.stringify(config, null, 2),
       );
     },
@@ -106,17 +106,17 @@ export function createServer(): McpServer {
     "create-action",
     {
       description:
-        "Crea una accion de QuickSpot (url, command, app, file, folder o sequence de hasta 5 pasos). Valida como el backend; el nombre debe ser unico.",
+        "Create a QuickSpot action (url, command, app, file, folder or sequence of up to 5 steps). Validates like the backend; the name must be unique.",
       inputSchema: CreateActionSchema,
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (input) => {
       const { config, path } = loadConfig();
       if (config.actions.some((a) => a.name.trim().toLowerCase() === input.name.trim().toLowerCase())) {
-        throw new Error(`ya existe una accion llamada "${input.name}". Usa update-action para modificarla.`);
+        throw new Error(`an action named "${input.name}" already exists. Use update-action to modify it.`);
       }
       if (input.group && !config.groups.some((g) => g.id === input.group)) {
-        throw new Error(`grupo desconocido "${input.group}". Lista grupos con list-groups primero.`);
+        throw new Error(`unknown group "${input.group}". List groups with list-groups first.`);
       }
       const action: Action = {
         name: input.name.trim(),
@@ -135,25 +135,25 @@ export function createServer(): McpServer {
       }
       const cleaned = sanitize([...config.actions, action]);
       if (cleaned.length !== config.actions.length + 1) {
-        throw new Error("la accion no paso la validacion del backend (nombre/valor/pasos invalidos).");
+        throw new Error("the action failed backend validation (invalid name/value/steps).");
       }
       config.actions = cleaned;
       saveTo(path, config);
-      return textResult(`Accion "${action.name}" creada (${action.kind}). ${RELOAD_HINT}`);
+      return textResult(`Action "${action.name}" created (${action.kind}). ${RELOAD_HINT}`);
     },
   );
 
   server.registerTool(
     "update-action",
     {
-      description: "Modifica una accion existente (por indice o nombre exacto). Solo los campos dados cambian. null borra browser/hint/group/steps.",
+      description: "Update an existing action (by index or exact name). Only the given fields change. null clears browser/hint/group/steps.",
       inputSchema: UpdateActionSchema,
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
       const { config, path } = loadConfig();
       const idx = findActionIndex(config.actions, input.ref as number | string);
-      if (idx < 0) throw new Error(`accion no encontrada: ${String(input.ref)}. Usa list-actions para ver indices/nombres.`);
+      if (idx < 0) throw new Error(`action not found: ${String(input.ref)}. Use list-actions to see indices/names.`);
       const prev = config.actions[idx];
       const next: Action = { ...prev };
       if (input.name !== undefined) next.name = input.name.trim();
@@ -171,7 +171,7 @@ export function createServer(): McpServer {
         if (input.group === null) delete next.group;
         else {
           if (!config.groups.some((g) => g.id === input.group)) {
-            throw new Error(`grupo desconocido "${input.group}". Lista grupos con list-groups primero.`);
+            throw new Error(`unknown group "${input.group}". List groups with list-groups first.`);
           }
           next.group = input.group;
         }
@@ -181,70 +181,69 @@ export function createServer(): McpServer {
         else next.steps = input.steps.map((s) => ({ kind: s.kind, value: s.value, browser: s.browser ?? null }));
       }
       if (next.kind === "sequence" && !next.steps?.length) {
-        throw new Error("una sequence necesita steps (1-5 pasos leaf).");
+        throw new Error("a sequence needs steps (1-5 leaf steps).");
       }
       const clash = config.actions.findIndex(
         (a, i) => i !== idx && a.name.trim().toLowerCase() === next.name.trim().toLowerCase(),
       );
-      if (clash >= 0) throw new Error(`ese nombre ya lo usa la accion ${clash} ("${config.actions[clash].name}").`);
+      if (clash >= 0) throw new Error(`that name is already used by action ${clash} ("${config.actions[clash].name}").`);
       const trial = [...config.actions];
       trial[idx] = next;
       const cleaned = sanitize(trial);
       if (cleaned.length !== trial.length) {
-        throw new Error("el resultado no paso la validacion del backend (nombre/valor/pasos invalidos).");
+        throw new Error("the result failed backend validation (invalid name/value/steps).");
       }
       config.actions = cleaned;
       saveTo(path, config);
-      return textResult(`Accion "${prev.name}" actualizada. ${RELOAD_HINT}`);
+      return textResult(`Action "${prev.name}" updated. ${RELOAD_HINT}`);
     },
   );
 
   server.registerTool(
     "delete-action",
     {
-      description: "Elimina una accion de QuickSpot (por indice o nombre exacto).",
+      description: "Delete a QuickSpot action (by index or exact name).",
       inputSchema: DeleteActionSchema,
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
       const { config, path } = loadConfig();
       const idx = findActionIndex(config.actions, input.ref as number | string);
-      if (idx < 0) throw new Error(`accion no encontrada: ${String(input.ref)}.`);
+      if (idx < 0) throw new Error(`action not found: ${String(input.ref)}.`);
       const [removed] = config.actions.splice(idx, 1);
       saveTo(path, config);
-      return textResult(`Accion "${removed.name}" eliminada. ${RELOAD_HINT}`);
+      return textResult(`Action "${removed.name}" deleted. ${RELOAD_HINT}`);
     },
   );
 
   server.registerTool(
     "move-action",
     {
-      description: "Reordena una accion (el orden tambien define el ranking de busqueda).",
+      description: "Reorder an action (order also defines search ranking).",
       inputSchema: MoveActionSchema,
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
       const { config, path } = loadConfig();
       const idx = findActionIndex(config.actions, input.ref as number | string);
-      if (idx < 0) throw new Error(`accion no encontrada: ${String(input.ref)}.`);
+      if (idx < 0) throw new Error(`action not found: ${String(input.ref)}.`);
       const [item] = config.actions.splice(idx, 1);
       const to = Math.max(0, Math.min(input.to, config.actions.length));
       config.actions.splice(to, 0, item);
-      saveTo(path, config);
-      return textResult(`"${item.name}" movida a la posicion ${to}. ${RELOAD_HINT}`);
+      return textResult(`"${item.name}" moved to position ${to}. ${RELOAD_HINT}`);
     },
   );
 
   server.registerTool(
     "list-groups",
     {
-      description: "Lista los grupos de acciones (id, nombre, color). Solo lectura.",
+      description: "List action groups (id, name, color). Read-only.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () => {
       const { config } = loadConfig();
-      if (config.groups.length === 0) return textResult("(sin grupos)");
+      if (config.groups.length === 0) return textResult("(no groups)");
       return textResult(config.groups.map((g) => `${g.id}: ${g.name} (${g.color})`).join("\n"));
     },
   );
@@ -252,7 +251,7 @@ export function createServer(): McpServer {
   server.registerTool(
     "create-group",
     {
-      description: "Crea un grupo de color (#rrggbb) para organizar acciones.",
+      description: "Create a color group (#rrggbb) to organize actions.",
       inputSchema: CreateGroupSchema,
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -263,56 +262,56 @@ export function createServer(): McpServer {
       for (let n = 2; config.groups.some((g) => g.id === id); n++) id = `${base}-${n}`;
       config.groups = sanitizeGroups([...config.groups, { id, name: input.name.trim(), color: input.color }]);
       saveTo(path, config);
-      return textResult(`Grupo "${input.name}" creado con id "${id}". ${RELOAD_HINT}`);
+      return textResult(`Group "${input.name}" created with id "${id}". ${RELOAD_HINT}`);
     },
   );
 
   server.registerTool(
     "delete-group",
     {
-      description: "Elimina un grupo. Por defecto desasigna sus acciones (no las borra).",
+      description: "Delete a group. By default it unassigns its actions (does not delete them).",
       inputSchema: DeleteGroupSchema,
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
       const { config, path } = loadConfig();
-      if (!config.groups.some((g) => g.id === input.id)) throw new Error(`grupo no encontrado: "${input.id}".`);
+      if (!config.groups.some((g) => g.id === input.id)) throw new Error(`group not found: "${input.id}".`);
       config.groups = config.groups.filter((g) => g.id !== input.id);
       if (input.unassignActions) {
         for (const a of config.actions) if (a.group === input.id) delete a.group;
       }
       saveTo(path, config);
-      return textResult(`Grupo "${input.id}" eliminado. ${RELOAD_HINT}`);
+      return textResult(`Group "${input.id}" deleted. ${RELOAD_HINT}`);
     },
   );
 
   server.registerTool(
     "validate-config",
     {
-      description: "Valida el quickspot.config.json actual sin modificarlo: cuenta acciones/grupos y avisa de entradas ignoradas por el backend. Solo lectura.",
+      description: "Validate the current quickspot.config.json without modifying it: count actions/groups and report entries ignored by the backend. Read-only.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () => {
       const { readFileSync, existsSync } = await import("node:fs");
       const path = resolveConfigPath();
-      if (!existsSync(path)) return textResult(`No existe ${path}: QuickSpot usara los 3 valores por defecto. Valido.`);
+      if (!existsSync(path)) return textResult(`Missing ${path}: QuickSpot will use the 3 default values. Valid.`);
       let raw: unknown;
       try {
         raw = JSON.parse(readFileSync(path, "utf8"));
       } catch (e) {
-        return textResult(`INVALIDO: JSON malformado (${e instanceof Error ? e.message : String(e)}). QuickSpot usara los valores por defecto.`);
+        return textResult(`INVALID: malformed JSON (${e instanceof Error ? e.message : String(e)}). QuickSpot will use the default values.`);
       }
       const { parseConfig } = await import("./config.js");
       const rawActions = Array.isArray((raw as Record<string, unknown>).actions)
         ? ((raw as Record<string, unknown>).actions as unknown[]).length
         : -1;
-      if (rawActions === -1) return textResult("INVALIDO: falta el array `actions`. QuickSpot usara los valores por defecto.");
+      if (rawActions === -1) return textResult("INVALID: missing `actions` array. QuickSpot will use the default values.");
       const parsed = parseConfig(JSON.stringify(raw));
       const skipped = rawActions - parsed.actions.length;
       return textResult(
-        `Valido. Acciones: ${parsed.actions.length} (ignoradas: ${skipped}), grupos: ${parsed.groups.length}, ` +
-          `idioma: ${parsed.language ?? "sistema"}, iconos: ${parsed.showIcons}, magnify: ${parsed.magnify}, tema: ${parsed.theme ?? "sistema"}.`,
+        `Valid. Actions: ${parsed.actions.length} (skipped: ${skipped}), groups: ${parsed.groups.length}, ` +
+          `language: ${parsed.language ?? "system"}, icons: ${parsed.showIcons}, magnify: ${parsed.magnify}, theme: ${parsed.theme ?? "system"}.`,
       );
     },
   );
@@ -320,7 +319,7 @@ export function createServer(): McpServer {
   server.registerResource(
     "quickspot-config",
     "quickspot://config",
-    { description: "El quickspot.config.json actual tal como lo ve el backend (tras sanitizar).", mimeType: "application/json" },
+    { description: "The current quickspot.config.json as seen by the backend (after sanitizing).", mimeType: "application/json" },
     async (uri) => {
       const { config } = loadConfig();
       return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(config, null, 2) }] };

@@ -90,8 +90,8 @@ let currentLanguage: Language = resolveLanguage(savedLanguage);
 let magnifyEnabled = true;
 let iconsEnabled = true;
 let autostartAtOpen = false;
-/** Stored appearance: `system` follows the OS (claro -> claro, oscuro ->
- * oscuro), `light`/`dark`/`deep` pin the variant (`deep` is always an
+/** Stored appearance: `system` follows the OS (light -> light, dark ->
+ * dark), `light`/`dark`/`deep` pin the variant (`deep` is always an
  * explicit OLED opt-in). Draft mirrors the language pattern: the select
  * edits the draft, Save persists it. */
 let savedTheme: StoredTheme = "system";
@@ -1117,9 +1117,9 @@ themeSelect.addEventListener("change", () => {
   applyTheme();
 });
 
-// Sistema: si el SO cambia claro<->oscuro y el usuario sigue "Sistema",
-// el efectivo (claro<->oscuro) cambia en vivo, como Auto en Apple HIG.
-// `deep` nunca entra por sistema: es opt-in explícito.
+// System: if the OS flips light<->dark while the user stays on "System",
+// the effective theme (light<->dark) updates live, like Auto in Apple HIG.
+// `deep` never applies via system: it is an explicit opt-in.
 if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
   const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const onSystemTheme = (): void => {
@@ -1132,7 +1132,7 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
   }
 }
 
-// Aplica el tema lo antes posible para evitar flash del tema contrario.
+// Apply the theme as early as possible to avoid flashing the opposite theme.
 applyTheme();
 
 document.addEventListener("keydown", (e) => {
@@ -1175,8 +1175,85 @@ minimize.addEventListener("click", () => {
   void invoke("hide_to_tray");
 });
 
+/** Max window between two grip presses to count as a double
+ * (Windows default GetDoubleClickTime is 500 ms) and max radius
+ * between them in CSS px. The DOM `dblclick` event is not used: on Windows
+ * it never arrives. `drag_start` simulates a press on the caption
+ * (WM_NCLBUTTONDOWN) and the OS modal loop swallows the trailing
+ * `pointerup`/`click`, without which the browser never synthesizes `dblclick`
+ * (tauri-apps/tauri#10767). `pointerdown`, in contrast, always arrives,
+ * so the double is detected here. Same path on every platform. */
+const GRIP_DOUBLE_MS = 500;
+const GRIP_DOUBLE_PX = 10;
+/** How long the residual-click swallow lives after recentering (see below). */
+const GRIP_SWALLOW_CLICK_MS = 800;
+
+let lastGripDownAt = -Infinity;
+let lastGripDownX = 0;
+let lastGripDownY = 0;
+/** After recentering, the trailing `click` of the second press must die:
+ * if the window moved under a still cursor, that click would land on
+ * another control (e.g. a chip, running its action). Normally the
+ * browser reroutes it to the grip via implicit pointer capture, but
+ * after the Windows modal loop that cannot be assumed. A single click
+ * is swallowed; the timer disarms the flag if that click never arrives
+ * (also swallowed by the OS) so a legitimate future click is never eaten. */
+let swallowNextClick = false;
+
+window.addEventListener(
+  "click",
+  (e) => {
+    if (!swallowNextClick) return;
+    swallowNextClick = false;
+    e.preventDefault();
+    e.stopPropagation();
+  },
+  true,
+);
+
+/** Double-press on the grip: recenters the circle on the current monitor
+ * without starting a new drag. At this point no OS modal loop is
+ * active (it ended when the first press was released, which is what allows
+ * the second to exist), so `set_position` races nobody. `drag_end`
+ * is invoked first, in order: the intermediate `pointerup` was usually
+ * lost in the modal loop and the watchdog flag would still be raised. */
+function recenterFromGrip(): void {
+  grip.classList.remove("dragging");
+  grip.classList.remove("hover");
+  swallowNextClick = true;
+  window.setTimeout(() => {
+    swallowNextClick = false;
+  }, GRIP_SWALLOW_CLICK_MS);
+  void (async () => {
+    try {
+      await invoke("drag_end");
+      await invoke("center_window");
+    } catch (err) {
+      console.error("[quickspot] center_window failed:", err);
+    }
+  })();
+}
+
 function onGripDown(e: PointerEvent): void {
   if (e.button !== 0) return;
+  const now = performance.now();
+  const dx = e.clientX - lastGripDownX;
+  const dy = e.clientY - lastGripDownY;
+  if (
+    now - lastGripDownAt <= GRIP_DOUBLE_MS &&
+    dx * dx + dy * dy <= GRIP_DOUBLE_PX * GRIP_DOUBLE_PX
+  ) {
+    // Second press of a double: recenter instead of dragging. The
+    // sequence is consumed so a triple press starts a new series
+    // instead of recentering twice in a row.
+    e.preventDefault();
+    lastGripDownAt = -Infinity;
+    recenterFromGrip();
+    return;
+  }
+  lastGripDownAt = now;
+  lastGripDownX = e.clientX;
+  lastGripDownY = e.clientY;
   e.preventDefault();
   grip.classList.add("dragging");
   void invoke("drag_start");
@@ -1190,18 +1267,6 @@ function endGripDrag(): void {
 grip.addEventListener("pointerdown", onGripDown);
 window.addEventListener("pointerup", endGripDrag);
 window.addEventListener("blur", endGripDrag);
-
-// Doble clic sobre el grip: recentra el círculo en el monitor actual.
-// Termina cualquier arrastre en curso antes de centrar para que el
-// watchdog de clamp no pelee con el reposicionamiento.
-grip.addEventListener("dblclick", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  grip.classList.remove("dragging");
-  grip.classList.remove("hover");
-  void invoke("drag_end");
-  void invoke("center_window").catch(() => {});
-});
 
 // Panel move: the grip is hidden while a panel is open, so the panel
 // headers double as title bars — a drag starting on header chrome (never on

@@ -69,7 +69,7 @@ const dup = await call("create-action", { name: "QuickSpot", kind: "url", value:
 assert(dup.result.isError, "create-action rejects duplicate names");
 
 const created = await call("create-action", { name: "Deploy", kind: "command", value: "make deploy" });
-assert(textOf(created).includes("creada"), "create-action creates command");
+assert(textOf(created).includes("created"), "create-action creates command");
 assert(textOf(created).includes("Cmd/Ctrl+R"), "mutation result reminds about reload");
 
 const seq = await call("create-action", {
@@ -81,7 +81,7 @@ const seq = await call("create-action", {
     { kind: "url", value: "https://example.com" },
   ],
 });
-assert(textOf(seq).includes("creada"), "create-action creates sequence");
+assert(textOf(seq).includes("created"), "create-action creates sequence");
 
 const badGroup = await call("create-action", { name: "G", kind: "url", value: "https://g.dev", group: "nope" });
 assert(badGroup.result.isError, "create-action rejects unknown group");
@@ -90,16 +90,16 @@ const grp = await call("create-group", { name: "Work", color: "#5e9eff" });
 assert(textOf(grp).includes('id "work"'), "create-group slugs id from name");
 
 const upd = await call("update-action", { ref: "Deploy", group: "work" });
-assert(textOf(upd).includes("actualizada"), "update-action assigns group");
+assert(textOf(upd).includes("updated"), "update-action assigns group");
 
 const moved = await call("move-action", { ref: "Deploy", to: 0 });
-assert(textOf(moved).includes("posicion 0"), "move-action reorders");
+assert(textOf(moved).includes("position 0"), "move-action reorders");
 
 const valid = await call("validate-config", {});
-assert(textOf(valid).includes("Valido"), "validate-config reports valid");
+assert(textOf(valid).includes("Valid"), "validate-config reports valid");
 
 const del = await call("delete-action", { ref: "Deploy" });
-assert(textOf(del).includes("eliminada"), "delete-action removes");
+assert(textOf(del).includes("deleted"), "delete-action removes");
 
 const missing = await call("delete-action", { ref: "NoExiste" });
 assert(missing.result.isError, "delete-action errors on unknown ref");

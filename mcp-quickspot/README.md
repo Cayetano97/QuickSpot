@@ -1,42 +1,42 @@
 # quickspot-mcp
 
-Servidor MCP (Model Context Protocol) para gestionar las acciones de QuickSpot desde cualquier agente de IA: OpenCode, Claude Code, Claude Desktop, Cursor, VS Code Copilot, Windsurf, Gemini CLI o Codex CLI.
+MCP (Model Context Protocol) server to manage QuickSpot actions from any AI agent: OpenCode, Claude Code, Claude Desktop, Cursor, VS Code Copilot, Windsurf, Gemini CLI or Codex CLI.
 
-Solo edita `quickspot.config.json` con las **mismas reglas de validación que el backend Rust** (`src-tauri/src/config.rs`). Nunca ejecuta acciones. Local, sin cuentas ni red.
+It only edits `quickspot.config.json` with the **same validation rules as the Rust backend** (`src-tauri/src/config.rs`). It never executes actions. Local, no accounts, no network.
 
 ## Tools
 
-| Tool | Qué hace |
+| Tool | What it does |
 | --- | --- |
-| `list-actions` | Lista acciones (índice, nombre, tipo, valor, grupo) |
-| `get-config` | Vuelca el config completo + ruta resuelta |
-| `create-action` | Crea una acción (`url`, `command`, `app`, `file`, `folder`, `sequence` de hasta 5 pasos) |
-| `update-action` | Modifica por índice o nombre (`null` borra `browser`/`hint`/`group`/`steps`) |
-| `delete-action` | Elimina por índice o nombre |
-| `move-action` | Reordena (el orden define el ranking de búsqueda) |
-| `list-groups` / `create-group` / `delete-group` | Gestiona grupos de color `#rrggbb` |
-| `validate-config` | Valida sin modificar (cuenta ignoradas por el backend) |
+| `list-actions` | List actions (index, name, type, value, group) |
+| `get-config` | Dump the full config + resolved path |
+| `create-action` | Create an action (`url`, `command`, `app`, `file`, `folder`, `sequence` of up to 5 steps) |
+| `update-action` | Update by index or name (`null` clears `browser`/`hint`/`group`/`steps`) |
+| `delete-action` | Delete by index or name |
+| `move-action` | Reorder (order defines search ranking) |
+| `list-groups` / `create-group` / `delete-group` | Manage `#rrggbb` color groups |
+| `validate-config` | Validate without modifying (counts entries ignored by the backend) |
 
-Recurso de lectura: `quickspot://config`.
+Read-only resource: `quickspot://config`.
 
-> Tras cada cambio, pulsa `Cmd/Ctrl+R` en QuickSpot (o bandeja → Reload config). La app no vigila el fichero.
+> After every change, press `Cmd/Ctrl+R` in QuickSpot (or tray → Reload config). The app does not watch the file.
 
-## Instalación
+## Installation
 
-**Opción A — desde un Release (recomendado, sin clonar nada):** descarga `quickspot.mcpb` (Claude Desktop: doble-click o Settings → Extensions → Install) o `dist/index.js` y regístralo:
+**Option A — from a Release (recommended, no cloning):** download `quickspot.mcpb` (Claude Desktop: double-click or Settings → Extensions → Install) or `dist/index.js` and register it:
 
 ```sh
-node /ruta/descargada/quickspot-mcp.js            # pregunta antes de instalar (opt-in)
-node /ruta/descargada/quickspot-mcp.js --yes      # agentes/CI: sin pregunta
-node /ruta/descargada/quickspot-mcp.js --status   # verifica
+node /downloaded/path/quickspot-mcp.js            # asks before installing (opt-in)
+node /downloaded/path/quickspot-mcp.js --yes      # agents/CI: no prompt
+node /downloaded/path/quickspot-mcp.js --status   # verify
 ```
 
-**Opción B — desde este repo (o para que una IA lo instale):** ver [`INSTALL.md`](INSTALL.md) — un solo comando, igual en macOS, Windows y Linux.
+**Option B — from this repo (or for an AI to install it):** see [`INSTALL.md`](INSTALL.md) — one command, same on macOS, Windows and Linux.
 
-## Desarrollo
+## Development
 
 ```sh
-npm ci && npm test && npm run build          # tests + bundle autocontenido dist/index.js
-QUICKSPOT_CONFIG=/tmp/qs.json node scripts/e2e-check.mjs   # smoke test del protocolo stdio
-npm run pack-mcpb                             # genera quickspot.mcpb para Claude Desktop
+npm ci && npm test && npm run build          # tests + self-contained bundle dist/index.js
+QUICKSPOT_CONFIG=/tmp/qs.json node scripts/e2e-check.mjs   # stdio protocol smoke test
+npm run pack-mcpb                             # build quickspot.mcpb for Claude Desktop
 ```
