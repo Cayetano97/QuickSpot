@@ -143,10 +143,9 @@ jobs:
           releaseBody: |
             ### Highlights
 
-            - **Control QuickSpot from any AI agent (MCP)** — new `mcp-quickspot` server with list/create/update/delete/move actions plus list/create/delete groups, using the same validation as the Rust backend. Ships as `quickspot.mcpb` (one-click Claude Desktop install) and `quickspot-mcp.js` (stdio for OpenCode, Claude Code, Cursor, Copilot, Windsurf, Gemini/Codex CLI), attached to this release with checksums; after each change press `Cmd/Ctrl+R` to reload.
-            - **Update popup instead of the disc pill** — the blue pill is gone; updates now arrive as a centered modal with Update now, Later (snoozes this version for the session) and On next open (auto-installs on the next overlay open, persisted in localStorage). Shows live download/install progress and install errors inline, opens from Settings too, and respects Esc, focus trap and backdrop-click to snooze.
-            - **Resizable Settings and Actions panels** — the borderless OS window is now resizable (480x600 to 1100x900) with native edge/corner drags (native snap on Windows/Linux, manual `setSize`/`setPosition` fallback on macOS) plus a subtle SE grip. Both panels are fluid and track the window; Settings is regrouped into Appearance / General / Updates sections (520px sheet) and the Actions editor fills up to 980x820. Double-click the grip recenters on the current monitor, and panel headers act as title bars for moving.
-            - **Accent- and whitespace-insensitive search** — queries normalize (trim, collapse spaces, lowercase, strip diacritics), so `cancion` finds `Canción`, `native   sdk` finds `Native SDK docs` and `  GitHub  ` just works. Whitespace-only input counts as empty (shows everything, no "no matches"), the input keeps raw keystrokes so the caret never jumps, and the app picker shares the same matching.
+            - **Two action layouts** — petal ring tiles (the new default) or the classic pill orbit, switchable in Settings → Appearance.
+            - **Resizable circle** — scale the whole launcher from 85% to 125% in Settings → Appearance; it applies to both layouts.
+            - **Grip and MCP fixes** — double-press the grip to recenter the overlay, and reordering actions from the MCP server now saves the configuration.
           # Published (not draft): the in-app updater polls the
           # `releases/latest` endpoint, which only sees published releases.
           releaseDraft: false
