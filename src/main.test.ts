@@ -143,16 +143,18 @@ function installGlobals(prefersDark = false): void {
 function installDom(): void {
   document.body.innerHTML = `
     <main id="overlay" aria-label="Quickspot quick actions">
-      <div id="disc"></div>
-      <div id="chips"></div>
-      <button id="hub"></button>
-      <button id="add"></button>
-      <div id="query-wrap"><span id="query-mirror"></span><span id="caret"></span><input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" /></div>
-      <span id="more-count" aria-hidden="true"></span>
-      <div id="empty-state" role="status" aria-live="polite" aria-atomic="true"></div>
-      <div id="run-error" role="alert" aria-live="assertive" aria-hidden="true"></div>
-      <button id="minimize"></button>
-      <div id="grip"></div>
+      <div id="launcher">
+        <div id="disc"></div>
+        <div id="chips"></div>
+        <button id="hub"></button>
+        <button id="add"></button>
+        <div id="query-wrap"><span id="query-mirror"></span><span id="caret"></span><input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" /></div>
+        <span id="more-count" aria-hidden="true"></span>
+        <div id="empty-state" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div id="run-error" role="alert" aria-live="assertive" aria-hidden="true"></div>
+        <button id="minimize"></button>
+        <div id="grip"></div>
+      </div>
       <div id="update-popup" role="dialog" aria-modal="true" aria-labelledby="update-popup-title" aria-hidden="true">
         <div id="update-popup-card">
           <div id="update-popup-header">
@@ -183,6 +185,20 @@ function installDom(): void {
               <div class="settings-list-row">
                 <label class="settings-row-label" for="settings-theme" id="settings-theme-label">Theme</label>
                 <select id="settings-theme" aria-label="Theme"></select>
+              </div>
+              <div class="settings-list-row">
+                <label class="settings-row-label" for="settings-chips" id="settings-chips-label">Action layout</label>
+                <select id="settings-chips" aria-label="Action layout">
+                  <option value="ring">Ring</option>
+                  <option value="pills">Pills</option>
+                </select>
+              </div>
+              <div class="settings-list-row" id="settings-circle-row">
+                <label class="settings-row-label" for="settings-circle-size" id="settings-circle-label">Circle size</label>
+                <span class="settings-circle-control">
+                  <input id="settings-circle-size" type="range" min="85" max="125" step="5" value="100" />
+                  <span class="settings-circle-value" id="settings-circle-value" aria-hidden="true">100%</span>
+                </span>
               </div>
               <label class="settings-list-row">
                 <span class="settings-row-label" id="settings-icons-label">Show action icons</span>
@@ -275,7 +291,9 @@ async function mount(config?: {
   language?: string | null;
   magnify?: boolean;
   showIcons?: boolean;
+  chipLayout?: string | null;
   theme?: string | null;
+  circleSize?: number | null;
   /** App version reported by the runtime; null simulates a failed lookup. */
   version?: string | null;
 }, opts?: {
@@ -293,7 +311,9 @@ async function mount(config?: {
         language: config?.language ?? null,
         magnify: config?.magnify ?? true,
         showIcons: config?.showIcons ?? true,
+        chipLayout: config?.chipLayout ?? null,
         theme: config?.theme ?? null,
+        circleSize: config?.circleSize ?? null,
       });
     }
     if (cmd === "list_apps") return Promise.resolve(INSTALLED_APPS);
@@ -630,7 +650,9 @@ describe("settings panel", () => {
       language: null,
       magnify: false,
       showIcons: true,
+      chipLayout: null,
       theme: null,
+      circleSize: 100,
     });
     expect(document.querySelector("#settings")!.classList.contains("open")).toBe(false);
   });
@@ -836,6 +858,190 @@ describe("settings panel", () => {
     expect(document.querySelector("#settings-updates-heading")!.textContent).toBe("Actualizaciones");
     expect(document.querySelector("#settings-general-heading")!.textContent).toBe("General");
   });
+
+  it("switching the action layout saves the pin", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const select = document.querySelector<HTMLSelectElement>("#settings-chips")!;
+    expect(select.value).toBe("ring");
+    select.value = "pills";
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({ chipLayout: "pills" }),
+    );
+  });
+
+  it("localizes the action-layout options", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const labels = Array.from(
+      document.querySelectorAll<HTMLOptionElement>("#settings-chips option"),
+      (o) => o.textContent,
+    );
+    expect(labels).toEqual(["Ring", "Pills"]);
+    const lang = document.querySelector<HTMLSelectElement>("#settings-lang")!;
+    lang.value = "es";
+    lang.dispatchEvent(new Event("change", { bubbles: true }));
+    const esLabels = Array.from(
+      document.querySelectorAll<HTMLOptionElement>("#settings-chips option"),
+      (o) => o.textContent,
+    );
+    expect(esLabels).toEqual(["Anillo", "Píldoras"]);
+    expect(document.querySelector("#settings-chips-label")!.textContent).toBe(
+      "Diseño de las acciones",
+    );
+  });
+});
+
+describe("chip layouts", () => {
+  it("lays the actions out as petal ring tiles by default", async () => {
+    expect(document.querySelector<HTMLElement>("#overlay")!.dataset.chips).toBe("ring");
+    expect(document.querySelectorAll(".chip .petal-body").length).toBe(8);
+    await openOverlay();
+    const chip = document.querySelectorAll<HTMLButtonElement>(".chip")[0];
+    expect(chip.style.transform).toContain("rotate(");
+  });
+
+  it("mounts the classic pills when the config pins chipLayout pills", async () => {
+    await mount({ chipLayout: "pills" });
+    expect(document.querySelector<HTMLElement>("#overlay")!.dataset.chips).toBe("pills");
+    expect(document.querySelector(".chip .petal-body")).toBeNull();
+    const chip = document.querySelector<HTMLButtonElement>(".chip")!;
+    expect(chip.querySelector(".chip-icon")).not.toBeNull();
+    expect(chip.querySelector(".chip-label")).not.toBeNull();
+  });
+
+  it("positions pills on the classic orbit with a rotation-free transform", async () => {
+    await mount({ chipLayout: "pills" });
+    await openOverlay();
+    const chips = document.querySelectorAll<HTMLButtonElement>(".chip");
+    // Four actions around the orbit (radius 160, box 132x40): index 0 at 12
+    // o'clock is selected and keeps the selection boost; the walk is
+    // clockwise, so index 1 sits at 3 o'clock and index 2 at 6.
+    expect(chips[0].style.transform).toBe("translate(194px, 110px) scale(1.05)");
+    expect(chips[1].style.transform).toBe("translate(354px, 270px) scale(1)");
+    expect(chips[2].style.transform).toBe("translate(194px, 430px) scale(1)");
+    expect(visibleChips()).toBe(4);
+  });
+
+  it("config-reloaded switches the layout live", () => {
+    eventHandlers["config-reloaded"]?.({
+      payload: {
+        actions: ACTIONS,
+        language: null,
+        magnify: true,
+        showIcons: true,
+        chipLayout: "pills",
+      },
+    });
+    expect(document.querySelector<HTMLElement>("#overlay")!.dataset.chips).toBe("pills");
+    expect(document.querySelector(".chip .petal-body")).toBeNull();
+  });
+
+  it("keeps the ring when the payload's chipLayout is unknown", async () => {
+    await mount({ chipLayout: "wheel" });
+    expect(document.querySelector<HTMLElement>("#overlay")!.dataset.chips).toBe("ring");
+    expect(document.querySelectorAll(".chip .petal-body").length).toBe(8);
+  });
+});
+
+describe("circle size setting", () => {
+  const slider = (): HTMLInputElement =>
+    document.querySelector<HTMLInputElement>("#settings-circle-size")!;
+  const scale = (): string =>
+    document.querySelector<HTMLElement>("#overlay")!.style.getPropertyValue("--launcher-scale");
+
+  it("defaults to 100% and keeps the launcher unscaled", () => {
+    expect(slider().value).toBe("100");
+    expect(document.querySelector("#settings-circle-value")!.textContent).toBe("100%");
+    expect(slider().getAttribute("aria-valuetext")).toBe("100%");
+    expect(scale()).toBe("1");
+  });
+
+  it("previews the zoom live from the slider without saving", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    slider().value = "115";
+    slider().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(scale()).toBe("1.15");
+    expect(document.querySelector("#settings-circle-value")!.textContent).toBe("115%");
+    expect(slider().getAttribute("aria-valuetext")).toBe("115%");
+    expect(invoke).not.toHaveBeenCalledWith("save_config", expect.anything());
+  });
+
+  it("Save persists the picked size and keeps the zoom applied", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    slider().value = "115";
+    slider().dispatchEvent(new Event("input", { bubbles: true }));
+    document.querySelector<HTMLButtonElement>("#settings-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({ circleSize: 115 }),
+    );
+    expect(document.querySelector("#settings")!.classList.contains("open")).toBe(false);
+    expect(scale()).toBe("1.15");
+  });
+
+  it("closing settings without saving reverts the preview", async () => {
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    slider().value = "85";
+    slider().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(scale()).toBe("0.85");
+    document.querySelector<HTMLButtonElement>("#settings-close")!.click();
+    expect(scale()).toBe("1");
+    expect(slider().value).toBe("100");
+    expect(document.querySelector("#settings-circle-value")!.textContent).toBe("100%");
+  });
+
+  it("mounts at the configured size, snapping off-grid and malformed values", async () => {
+    await mount({ circleSize: 110 });
+    expect(scale()).toBe("1.1");
+    await mount({ circleSize: 113 });
+    expect(scale()).toBe("1.15");
+    await mount({ circleSize: 900 });
+    expect(scale()).toBe("1.25");
+    await mount({ circleSize: "big" as unknown as number });
+    expect(scale()).toBe("1");
+  });
+
+  it("config-reloaded re-applies the size live", () => {
+    eventHandlers["config-reloaded"]?.({
+      payload: {
+        actions: ACTIONS,
+        language: null,
+        magnify: true,
+        showIcons: true,
+        chipLayout: null,
+        theme: null,
+        circleSize: 85,
+      },
+    });
+    expect(scale()).toBe("0.85");
+  });
+
+  it("saving the actions panel preserves the circle size", async () => {
+    await mount({ circleSize: 110 });
+    await openOverlay();
+    openActions();
+    document.querySelector<HTMLButtonElement>("#actions-save")!.click();
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(
+      "save_config",
+      expect.objectContaining({ circleSize: 110 }),
+    );
+  });
+
+  it("applies to the pills layout too (both compositions share the wrapper)", async () => {
+    await mount({ chipLayout: "pills", circleSize: 85 });
+    expect(document.querySelector<HTMLElement>("#overlay")!.dataset.chips).toBe("pills");
+    expect(document.querySelector("#launcher .chip")).not.toBeNull();
+    expect(scale()).toBe("0.85");
+  });
 });
 
 describe("actions panel", () => {
@@ -934,7 +1140,9 @@ describe("actions panel", () => {
       language: null,
       magnify: true,
       showIcons: true,
+      chipLayout: null,
       theme: null,
+      circleSize: 100,
     });
     expect(document.querySelector("#actions")!.classList.contains("open")).toBe(false);
   });
@@ -1466,7 +1674,9 @@ describe("groups", () => {
       language: null,
       magnify: true,
       showIcons: true,
+      chipLayout: null,
       theme: null,
+      circleSize: 100,
     });
   });
 

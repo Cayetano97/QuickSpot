@@ -6,6 +6,8 @@ import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { open as pickPath } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { normalizeChipMode, type ChipMode } from "./lib/chips";
+import { circleScale, normalizeCircleSize } from "./lib/circle";
 import {
   ADD_X,
   CANVAS_H,
@@ -22,6 +24,8 @@ import {
   MAX_FINAL_SCALE,
   MAX_VISIBLE,
   MINIMIZE_Y,
+  PETAL_HOVER_PEAK,
+  PILL_DOCK_RADIUS,
   RUN_ERROR_MS,
   STAGGER_FRAC,
 } from "./lib/constants";
@@ -29,10 +33,13 @@ import {
   chipCenter,
   chipMaxScale,
   dockScale,
+  easeOutBack,
   easeOutCubic,
   easeOutQuart,
+  petalHoverScale,
   staggeredProgress,
 } from "./lib/easing";
+import { petalAtPointer, petalLayout, type PetalLayout } from "./lib/petals";
 import {
   LANGUAGES,
   resolveLanguage,
@@ -89,6 +96,14 @@ let langDraft: StoredLanguage | null = null;
 let currentLanguage: Language = resolveLanguage(savedLanguage);
 let magnifyEnabled = true;
 let iconsEnabled = true;
+/** Chip layout in use: petal ring tiles or the classic pill orbit. */
+let chipMode: ChipMode = "ring";
+/** Launcher circle size (percent, 85..125 on a 5% grid): the zoom of the
+ * whole composition, both chip layouts alike. `circleDraft` mirrors the
+ * language/theme pattern — the slider edits the draft (applied live), Save
+ * persists it, closing without saving falls back to `savedCircleSize`. */
+let savedCircleSize = 100;
+let circleDraft: number | null = null;
 let autostartAtOpen = false;
 /** Stored appearance: `system` follows the OS (light -> light, dark ->
  * dark), `light`/`dark`/`deep` pin the variant (`deep` is always an
@@ -100,6 +115,10 @@ let themeDraft: StoredTheme | null = null;
 let appVersion = "";
 
 const root = document.querySelector<HTMLElement>("#overlay")!;
+/** The launcher composition wrapper: the only element `--launcher-scale`
+ *  transforms, and the coordinate reference for pointer mapping (chips are
+ *  laid out in its unscaled 520x580 canvas). */
+const launcher = document.querySelector<HTMLElement>("#launcher")!;
 const disc = document.querySelector<HTMLElement>("#disc")!;
 const hub = document.querySelector<HTMLButtonElement>("#hub")!;
 const addBtn = document.querySelector<HTMLButtonElement>("#add")!;
@@ -131,6 +150,11 @@ const settingsVersion = document.querySelector<HTMLElement>("#settings-version")
 const langSelect = document.querySelector<HTMLSelectElement>("#settings-lang")!;
 const settingsThemeLabel = document.querySelector<HTMLElement>("#settings-theme-label")!;
 const themeSelect = document.querySelector<HTMLSelectElement>("#settings-theme")!;
+const settingsChipsLabel = document.querySelector<HTMLElement>("#settings-chips-label")!;
+const settingsChips = document.querySelector<HTMLSelectElement>("#settings-chips")!;
+const settingsCircleLabel = document.querySelector<HTMLElement>("#settings-circle-label")!;
+const settingsCircle = document.querySelector<HTMLInputElement>("#settings-circle-size")!;
+const settingsCircleValue = document.querySelector<HTMLElement>("#settings-circle-value")!;
 const settingsError = document.querySelector<HTMLElement>("#settings-error")!;
 const settingsSave = document.querySelector<HTMLButtonElement>("#settings-save")!;
 
@@ -508,6 +532,21 @@ const chips: HTMLButtonElement[] = [];
 const chipLabels: HTMLElement[] = [];
 const chipIcons: HTMLElement[] = [];
 
+/** One tile's SVG. The single `body` path paints the fill and the WCAG
+ *  1.4.11 boundary stroke (the outline lives in `src/lib/petals.ts`). */
+interface ChipPetal {
+  svg: SVGSVGElement;
+  body: SVGPathElement;
+}
+
+const chipPetals: ChipPetal[] = [];
+/** Baked geometry of the current ring, read by `render()` and
+ *  `applyChipTransforms()` so the hot paths never recompute the layout. */
+const chipGeom: Array<PetalLayout | undefined> = [];
+let laidOutCount = -1;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
 const KIND_ICONS: Record<Action["kind"], string> = {
   url: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
   command:
@@ -528,21 +567,52 @@ const KIND_LABEL_KEYS: Record<Action["kind"], DictKey> = {
   sequence: "kindSequence",
 };
 
-for (let i = 0; i < MAX_VISIBLE; i++) {
-  const chip = document.createElement("button");
-  chip.className = "chip";
-  chip.type = "button";
-  const icon = document.createElement("span");
-  icon.className = "chip-icon";
-  const label = document.createElement("span");
-  label.className = "chip-label";
-  chip.append(icon, label);
-  chip.addEventListener("click", () => onChipClick(i));
-  chipsHost.appendChild(chip);
-  chips.push(chip);
-  chipLabels.push(label);
-  chipIcons.push(icon);
+/** (Re)build the chip pool for the current layout. A ring chip is one inline
+ *  SVG (the `body` path whose outline lives in `src/lib/petals.ts`) plus the
+ *  icon/label column; a pill chip is the classic flat button with the icon
+ *  and the label side by side. Runs at boot and whenever the `chipLayout`
+ *  preference changes (rare), so the DOM always matches exactly one layout. */
+function buildChips(): void {
+  chipsHost.replaceChildren();
+  chips.length = 0;
+  chipLabels.length = 0;
+  chipIcons.length = 0;
+  chipPetals.length = 0;
+  chipGeom.length = 0;
+  laidOutCount = -1;
+  for (let i = 0; i < MAX_VISIBLE; i++) {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.type = "button";
+    const icon = document.createElement("span");
+    icon.className = "chip-icon";
+    const label = document.createElement("span");
+    label.className = "chip-label";
+    if (chipMode === "ring") {
+      const svg = document.createElementNS(SVG_NS, "svg");
+      svg.setAttribute("class", "petal");
+      svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("focusable", "false");
+      const body = document.createElementNS(SVG_NS, "path");
+      body.setAttribute("class", "petal-body");
+      svg.append(body);
+      const content = document.createElement("span");
+      content.className = "chip-content";
+      content.append(icon, label);
+      chip.append(svg, content);
+      chipPetals.push({ svg, body });
+    } else {
+      chip.append(icon, label);
+    }
+    chip.addEventListener("click", () => onChipClick(i));
+    chipsHost.appendChild(chip);
+    chips.push(chip);
+    chipLabels.push(label);
+    chipIcons.push(icon);
+  }
 }
+
+buildChips();
 
 // ------------------------------------------------------------------ helpers
 
@@ -638,6 +708,19 @@ function populateThemeOptions(): void {
   }
 }
 
+/** Localized labels for the chip-layout options (mirrors the theme row). */
+function localizeChipsOptions(): void {
+  const L = currentLanguage;
+  const labels: Record<string, string> = {
+    ring: t(L, "chipLayoutRing"),
+    pills: t(L, "chipLayoutPills"),
+  };
+  for (const option of Array.from(settingsChips.options)) {
+    const label = labels[option.value];
+    if (label) option.textContent = label;
+  }
+}
+
 /** Effective theme -> `data-theme` on <html> + matching theme-color meta. */
 function applyTheme(): void {
   const effective = resolveTheme(themeDraft ?? savedTheme, systemPrefersDark());
@@ -701,6 +784,11 @@ function localizeAll(): void {
   settingsMagnify.setAttribute("aria-label", t(L, "magnifyLabel"));
   settingsIconsLabel.textContent = t(L, "iconsLabel");
   settingsIcons.setAttribute("aria-label", t(L, "iconsLabel"));
+  settingsChipsLabel.textContent = t(L, "chipLayoutLabel");
+  settingsChips.setAttribute("aria-label", t(L, "chipLayoutLabel"));
+  localizeChipsOptions();
+  settingsCircleLabel.textContent = t(L, "circleSizeLabel");
+  settingsCircle.setAttribute("aria-label", t(L, "circleSizeLabel"));
   settingsAutostartLabel.textContent = t(L, "autostartLabel");
   settingsAutostart.setAttribute("aria-label", t(L, "autostartLabel"));
   settingsUpdateLabel.textContent = t(L, "checkForUpdates");
@@ -748,14 +836,70 @@ function syncIcons(): void {
   root.classList.toggle("no-icons", !iconsEnabled);
 }
 
+/** Reflect the layout preference: tag `#overlay` so the scoped CSS applies
+ * (`data-chips`), rebuild the chip pool when the layout changed, and re-run
+ * the layout pass so the new tiles get their geometry immediately. */
+function syncChipsMode(): void {
+  const changed = root.dataset.chips !== chipMode;
+  root.dataset.chips = chipMode;
+  if (!changed && chips.length > 0) return;
+  buildChips();
+  syncChips();
+}
+
+/** Reflect the circle-size preference (draft or saved): one
+ *  `--launcher-scale` on `#overlay`, inherited by the `#launcher` wrapper,
+ *  resizes the whole composition — disc, chips of either layout, centre
+ *  cluster — while the settings row follows (slider, readout, and the
+ *  Screen Reader's value text). Runs on every slider input (live preview),
+ *  on config load, and when the panel closes (draft revert). No transition
+ *  by design: while dragging, the launcher must track the pointer 1:1. */
+function applyCircleSize(): void {
+  const size = circleDraft ?? savedCircleSize;
+  root.style.setProperty("--launcher-scale", String(circleScale(size)));
+  settingsCircle.value = String(size);
+  settingsCircleValue.textContent = `${size}%`;
+  settingsCircle.setAttribute("aria-valuetext", `${size}%`);
+}
+
 /** The group of an action by config id, or undefined when unset/unknown. */
 function actionGroup(action: Action): Group | undefined {
   if (!action.group) return undefined;
   return groups.find((g) => g.id === action.group);
 }
 
+/** Bake the ring's tile geometry into the DOM: box size, viewBox, the shared
+ *  path and the per-tile content variables. Runs whenever the visible count
+ *  changes; the hot paths then read `chipGeom`. Ring layout only: a pill's
+ *  box is fixed by CSS. */
+function layoutChips(count: number): void {
+  if (chipMode !== "ring" || count === laidOutCount) return;
+  laidOutCount = count;
+  const px = (v: number): string => `${Math.round(v * 100) / 100}`;
+  for (let i = 0; i < MAX_VISIBLE && i < count; i++) {
+    const layout = petalLayout(i, count);
+    chipGeom[i] = layout;
+    const petal = chipPetals[i];
+    petal.svg.setAttribute("viewBox", `0 0 ${px(layout.w)} ${px(layout.h)}`);
+    petal.body.setAttribute("d", layout.path);
+    const el = chips[i];
+    el.style.width = `${px(layout.w)}px`;
+    el.style.height = `${px(layout.h)}px`;
+    el.style.setProperty("--chip-flip", layout.flip ? "180deg" : "0deg");
+    el.style.setProperty("--chip-label-w", `${px(layout.labelW)}px`);
+  }
+}
+
+/** One compositor-friendly transform string: move the box so its centre sits
+ *  on the tile's mid-point, rotate it along the radius, scale about the tile
+ *  centre. */
+function chipTransform(layout: PetalLayout, rotation: number, scale: number): string {
+  return `translate(${layout.cx - layout.w / 2}px, ${layout.cy - layout.h / 2}px) rotate(${rotation}deg) scale(${scale})`;
+}
+
 function syncChips(): void {
   syncEmptyState();
+  layoutChips(filtered.length);
   for (let i = 0; i < MAX_VISIBLE; i++) {
     const el = chips[i];
     const idx = filtered[i];
@@ -792,17 +936,27 @@ function syncChips(): void {
  * `render()`'s control (CSS default is 0). */
 function applyChipTransforms(): void {
   const count = filtered.length;
+  if (chipMode === "pills") {
+    for (let i = 0; i < MAX_VISIBLE; i++) {
+      if (i >= count) continue;
+      const [cx, cy] = chipCenter(i, count);
+      const hoverScale = magnifyEnabled
+        ? dockScale(cx, cy, mouseX, mouseY, i === selected, PILL_DOCK_RADIUS)
+        : 1;
+      // The dock scale is capped so the pill never pokes out of the disc
+      // circle (the 3/9 o'clock pills of a full ring are the ones that clamp).
+      const scale = Math.min(hoverScale, MAX_FINAL_SCALE, chipMaxScale(cx, cy, MAX_FINAL_SCALE));
+      chips[i].style.transform = `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`;
+    }
+    return;
+  }
   for (let i = 0; i < MAX_VISIBLE; i++) {
-    const el = chips[i];
-    if (i >= count) continue;
-    const [cx, cy] = chipCenter(i, count);
-    const hoverScale = magnifyEnabled
-      ? dockScale(cx, cy, mouseX, mouseY, i === selected)
+    const layout = chipGeom[i];
+    if (i >= count || !layout) continue;
+    const scale = magnifyEnabled
+      ? petalHoverScale(layout.cx, layout.cy, mouseX, mouseY, i === selected)
       : 1;
-    // The dock scale is capped so the chip never pokes out of the disc
-    // circle (the 3/9 o'clock chips of a full ring are the ones that clamp).
-    const scale = Math.min(hoverScale, MAX_FINAL_SCALE, chipMaxScale(cx, cy, MAX_FINAL_SCALE));
-    el.style.transform = `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`;
+    chips[i].style.transform = chipTransform(layout, layout.rotation, scale);
   }
 }
 
@@ -814,6 +968,12 @@ function render(): void {
 
   root.classList.toggle("settled", overlay.phase === "visible");
 
+  // The tray inflates on the way in and deflates on the way out. The largest
+  // surface on screen grows smoothly: an overshoot on something this big
+  // reads as a wobble. Both directions are pure composite transforms on one
+  // static paint.
+  const discScale = closing ? 0.96 + 0.04 * easeOutCubic(dp) : 0.92 + 0.08 * easeOutCubic(dp);
+  disc.style.transform = `scale(${discScale})`;
   disc.style.opacity = String(easeOutQuart(dp));
 
   const hubScale = easeOutCubic(dp);
@@ -833,19 +993,37 @@ function render(): void {
   const count = filtered.length;
   for (let i = 0; i < MAX_VISIBLE; i++) {
     const el = chips[i];
-    const idx = filtered[i];
-    if (idx === undefined) {
+    if (i >= count) {
       el.style.opacity = "0";
       continue;
     }
     const chipT = closing
       ? staggeredProgress(overlay.animProgress, count - 1 - i, count, STAGGER_FRAC)
       : staggeredProgress(overlay.animProgress, i, count, STAGGER_FRAC);
-    const animScale = closing ? 1 - easeOutCubic(chipT) : easeOutCubic(chipT);
     const opacity = closing ? 1 - easeOutCubic(chipT) : easeOutQuart(chipT);
-    const [cx, cy] = chipCenter(i, count);
-    const scale = Math.min(animScale, MAX_FINAL_SCALE);
-    el.style.transform = `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`;
+    if (chipMode === "pills") {
+      // The classic entrance: the pill plain-eases out of nothing, from its
+      // own centre. No wind and no overshoot (those belong to the tiles).
+      const animScale = closing ? 1 - easeOutCubic(chipT) : easeOutCubic(chipT);
+      const [cx, cy] = chipCenter(i, count);
+      const scale = Math.min(animScale, MAX_FINAL_SCALE);
+      el.style.transform = `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`;
+      el.style.opacity = String(opacity);
+      continue;
+    }
+    const layout = chipGeom[i];
+    if (!layout) {
+      el.style.opacity = "0";
+      continue;
+    }
+    // Opening: a small overshoot, so each tile inflates instead of merely
+    // scaling up, and a few degrees of "wind" so the ring swings into place
+    // (rotation is free — no layout, no repaint). Closing keeps the plain
+    // ease-out (a deflate has no bounce).
+    const animScale = closing ? 1 - easeOutCubic(chipT) : easeOutBack(chipT, 1);
+    const wind = (1 - easeOutCubic(chipT)) * 10;
+    const scale = Math.min(animScale, PETAL_HOVER_PEAK);
+    el.style.transform = chipTransform(layout, layout.rotation - wind, scale);
     el.style.opacity = String(opacity);
   }
 
@@ -856,7 +1034,20 @@ function render(): void {
   hub.style.pointerEvents = pe;
   addBtn.style.pointerEvents = pe;
   minimize.style.pointerEvents = pe;
-  for (let i = 0; i < MAX_VISIBLE; i++) chips[i].style.pointerEvents = pe;
+  if (chipMode === "pills") {
+    // A pill's hit area is its whole (unrotated) box; hidden pills (past the
+    // filtered count) never take pointers.
+    for (let i = 0; i < MAX_VISIBLE; i++) {
+      chips[i].style.pointerEvents = enabled && i < count ? "auto" : "none";
+    }
+  } else {
+    // The tiles' hit area is the painted path (the button itself is
+    // pointer-events: none), so only real tile pixels take clicks — and hidden
+    // tiles (past the filtered count) never take any.
+    for (let i = 0; i < MAX_VISIBLE; i++) {
+      chipPetals[i].body.style.pointerEvents = enabled && i < count ? "auto" : "none";
+    }
+  }
 }
 
 // ------------------------------------------------------------ animation loop
@@ -1115,6 +1306,14 @@ langSelect.addEventListener("change", () => {
 themeSelect.addEventListener("change", () => {
   themeDraft = normalizeTheme(themeSelect.value);
   applyTheme();
+});
+
+// Live circle-size preview: the slider writes the draft on every input so
+// the launcher behind the panel resizes under the pointer; Save persists it
+// and closing without saving reverts (same draft pattern as the theme).
+settingsCircle.addEventListener("input", () => {
+  circleDraft = normalizeCircleSize(Number(settingsCircle.value));
+  applyCircleSize();
 });
 
 // System: if the OS flips light<->dark while the user stays on "System",
@@ -1440,33 +1639,42 @@ for (const handle of document.querySelectorAll<HTMLElement>(".resize-handle")) {
   });
 }
 
-/** The chip the cursor is over (logical coords), or -1 when in between. */
+/** The chip the cursor is over (logical coords), or -1 when in between.
+ *  Pills use their plain rectangular box; ring tiles use the polar hit test
+ *  (`petalAtPointer`), whose seams are exactly the angular midpoints. */
 function chipAtPointer(): number {
-  for (let i = 0; i < filtered.length; i++) {
-    const [cx, cy] = chipCenter(i, filtered.length);
-    if (Math.abs(mouseX - cx) <= CHIP_W / 2 && Math.abs(mouseY - cy) <= CHIP_H / 2) {
-      return i;
+  const count = filtered.length;
+  if (chipMode === "pills") {
+    for (let i = 0; i < count; i++) {
+      const [cx, cy] = chipCenter(i, count);
+      if (Math.abs(mouseX - cx) <= CHIP_W / 2 && Math.abs(mouseY - cy) <= CHIP_H / 2) {
+        return i;
+      }
     }
+    return -1;
   }
-  return -1;
+  return petalAtPointer(mouseX, mouseY, count);
 }
 
 /**
  * Map a PointerEvent's viewport coordinates (`clientX`/`clientY`) to the
- * launcher canvas' logical coordinates (0..CANVAS_W, 0..CANVAS_H) where
- * `chipCenter()` lives.
+ * launcher canvas' logical coordinates (0..CANVAS_W, 0..CANVAS_H) where the
+ * petal layout lives (`src/lib/petals.ts`).
  *
  * `clientX/Y` are viewport-relative (MDN: MouseEvent.clientX) while the
- * 520x580 `#overlay` canvas is centered inside the larger 680x740 OS window
- * and additionally scaled via `transform: scale(var(--overlay-scale))`.
- * `getBoundingClientRect()` returns the element's border box in the same
- * viewport space *including* transforms (MDN:
- * Element.getBoundingClientRect), so subtracting its origin and un-scaling
- * by `CANVAS / rect` yields the logical point under the cursor regardless
- * of centering offset or `uiScale`.
+ * 520x580 `#overlay` canvas is centered inside the larger 680x740 OS window,
+ * additionally scaled via `transform: scale(var(--overlay-scale))`, and the
+ * `#launcher` wrapper inside it carries the circle-size zoom
+ * (`--launcher-scale`). `getBoundingClientRect()` returns the element's
+ * border box in the same viewport space *including* transforms (MDN:
+ * Element.getBoundingClientRect), so measuring the wrapper — the box the
+ * chips are laid out in — and un-scaling by `CANVAS / rect` yields the
+ * logical point under the cursor regardless of the centering offset, the
+ * window fit and the circle size. (Measuring `#overlay` would miss the
+ * wrapper's own zoom.)
  */
 function toCanvasCoords(clientX: number, clientY: number): [number, number] {
-  const rect = root.getBoundingClientRect();
+  const rect = launcher.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) return [-10000, -10000];
   const x = (clientX - rect.left) * (CANVAS_W / rect.width);
   const y = (clientY - rect.top) * (CANVAS_H / rect.height);
@@ -1554,6 +1762,8 @@ function openSettings(): void {
   themeSelect.value = themeDraft ?? savedTheme;
   settingsMagnify.checked = magnifyEnabled;
   settingsIcons.checked = iconsEnabled;
+  settingsChips.value = chipMode;
+  applyCircleSize();
   settingsAutostart.checked = autostartAtOpen;
   syncSettingsUpdateBtn();
   void isEnabled()
@@ -1616,7 +1826,9 @@ function closeSettings(): void {
   settingsOpen = false;
   langDraft = null;
   themeDraft = null;
+  circleDraft = null;
   applyLanguage();
+  applyCircleSize();
   settingsPanel.classList.remove("open");
   settingsPanel.setAttribute("aria-hidden", "true");
   releasePanel();
@@ -3501,6 +3713,7 @@ function collectSettingsActions(): Action[] {
 async function saveSettings(): Promise<void> {
   const language = langDraft ?? savedLanguage;
   const theme = themeDraft ?? savedTheme;
+  const circleSize = normalizeCircleSize(Number(settingsCircle.value));
   settingsError.textContent = "";
   settingsError.classList.remove("visible");
   settingsSave.disabled = true;
@@ -3516,8 +3729,15 @@ async function saveSettings(): Promise<void> {
       language: language === "system" ? null : language,
       magnify: settingsMagnify.checked,
       showIcons: settingsIcons.checked,
+      chipLayout: settingsChips.value === "pills" ? "pills" : null,
       theme: theme === "system" ? null : theme,
+      circleSize,
     });
+    // Commit before closing: `closeSettings()` clears the draft and
+    // re-applies, which must land on the new size — not flicker back to the
+    // old zoom while the sanitized payload travels back.
+    savedCircleSize = circleSize;
+    circleDraft = null;
     closeSettings();
   } catch (err) {
     settingsError.textContent = t(currentLanguage, "saveError", { msg: String(err) });
@@ -3598,7 +3818,9 @@ async function saveActions(): Promise<void> {
       language: savedLanguage === "system" ? null : savedLanguage,
       magnify: magnifyEnabled,
       showIcons: iconsEnabled,
+      chipLayout: chipMode === "pills" ? "pills" : null,
       theme: savedTheme === "system" ? null : savedTheme,
+      circleSize: savedCircleSize,
     });
     closeActions();
   } catch (err) {
@@ -3615,7 +3837,9 @@ interface ConfigPayload {
   language: string | null;
   magnify: boolean;
   showIcons: boolean;
+  chipLayout?: string | null;
   theme?: string | null;
+  circleSize?: number | null;
 }
 
 function applyConfigPayload(cfg: ConfigPayload): void {
@@ -3624,9 +3848,14 @@ function applyConfigPayload(cfg: ConfigPayload): void {
   savedLanguage = (cfg.language ?? "system") as StoredLanguage;
   magnifyEnabled = cfg.magnify;
   iconsEnabled = cfg.showIcons;
+  chipMode = normalizeChipMode(cfg.chipLayout);
   savedTheme = normalizeTheme(cfg.theme ?? "system");
+  savedCircleSize = normalizeCircleSize(cfg.circleSize);
   themeDraft = null;
+  circleDraft = null;
   syncIcons();
+  syncChipsMode();
+  applyCircleSize();
   applyLanguage();
 }
 

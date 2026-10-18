@@ -55,6 +55,8 @@ Inside the overlay:
 - **Reorder** — Up/Down buttons in the panel; order also sets search ranking
 - **Colored groups** — group actions and give each group a color
 - **Live filtering** — type to filter instantly
+- **Two chip layouts** — petal ring tiles (default) or the classic pill orbit; switchable in Settings → Appearance
+- **Resizable circle** — scale the whole launcher (85–125%) from Settings → Appearance; applies to both chip layouts
 - **Tray menu** — Show / Reload config / Quit
 
 ## Getting started
@@ -122,6 +124,8 @@ skipped.
 | `theme` | Optional, top-level: `"system"` (follow the OS — light OS → light, dark OS → dark), `"light"`, `"dark"` or `"deep"` (OLED true black, explicit opt-in). Unknown values fall back to system; omitted when system |
 | `magnify` | Optional, top-level: dock-style hover magnification on the chips. Defaults to on; omitted when on |
 | `showIcons` | Optional, top-level: show each action's kind icon on its chip. Defaults to on; omitted when on |
+| `chipLayout` | Optional, top-level: how the action chips are arranged — `"ring"` (petal tiles filling the disc, the default) or `"pills"` (the classic orbit of flat pills). Unknown values fall back to ring; omitted when ring. Switchable in Settings → Appearance |
+| `circleSize` | Optional, top-level: launcher size in percent of the design size, an integer on the 5% grid from `85` to `125`. Applies to both chip layouts; values are clamped to the range and snapped to the grid, and `100` (the default) is omitted. Set from Settings → Appearance |
 
 A `file` action opens its `value` with the OS default handler. A `folder`
 action opens its `value` in the OS file manager. The actions panel offers a

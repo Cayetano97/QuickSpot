@@ -4,11 +4,13 @@ import {
   findActionIndex,
   isHexColor,
   loadFrom,
+  normalizeCircleSize,
   parseConfig,
   sanitize,
   sanitizeGroups,
   saveTo,
   serializeConfig,
+  validChipLayout,
   validLanguage,
   validTheme,
 } from "./config.js";
@@ -46,19 +48,69 @@ describe("parseConfig (mirror of Rust parse_config)", () => {
     expect(parseConfig(`{"actions":[{"name":"E","kind":"sequence","steps":[]}]}`).actions).toHaveLength(0);
   });
 
-  it("parses groups, language, magnify, icons and theme like Rust", () => {
+  it("parses groups, language, magnify, icons, chips and theme like Rust", () => {
     const cfg = parseConfig(
       `{"groups":[{"id":"w","name":"W","color":"#5e9eff"},{"id":"","name":"X","color":"red"}],
-        "language":"es","magnify":false,"showIcons":false,"theme":"deep","actions":[]}`,
+        "language":"es","magnify":false,"showIcons":false,"chipLayout":"pills","theme":"deep",
+        "circleSize":115,"actions":[]}`,
     );
     expect(cfg.groups).toHaveLength(1);
     expect(cfg.language).toBe("es");
     expect(cfg.magnify).toBe(false);
     expect(cfg.showIcons).toBe(false);
+    expect(cfg.chipLayout).toBe("pills");
     expect(cfg.theme).toBe("deep");
+    expect(cfg.circleSize).toBe(115);
     const sys = parseConfig(`{"theme":"system","language":"","actions":[]}`);
     expect(sys.theme).toBeNull();
     expect(sys.language).toBeNull();
+  });
+
+  it("treats ring (and anything unknown) as the chipLayout default", () => {
+    const pills = parseConfig(`{"chipLayout":"pills","actions":[]}`);
+    expect(pills.chipLayout).toBe("pills");
+    for (const text of [
+      `{"chipLayout":"ring","actions":[]}`,
+      `{"chipLayout":"wheel","actions":[]}`,
+      `{"chipLayout":"","actions":[]}`,
+      `{"chipLayout":42,"actions":[]}`,
+    ]) {
+      expect(parseConfig(text).chipLayout).toBeNull();
+    }
+  });
+
+  it("treats the design size as the circleSize default", () => {
+    expect(parseConfig(`{"actions":[]}`).circleSize).toBeNull();
+    expect(parseConfig(`{"circleSize":100,"actions":[]}`).circleSize).toBeNull();
+  });
+
+  it("snaps/clamps hand-edited circleSize to the 5% grid like Rust", () => {
+    expect(parseConfig(`{"circleSize":115,"actions":[]}`).circleSize).toBe(115);
+    expect(parseConfig(`{"circleSize":113,"actions":[]}`).circleSize).toBe(115);
+    expect(parseConfig(`{"circleSize":82,"actions":[]}`).circleSize).toBe(85);
+    expect(parseConfig(`{"circleSize":900,"actions":[]}`).circleSize).toBe(125);
+  });
+
+  it("falls back to the design size for malformed circleSize values", () => {
+    for (const text of [
+      `{"circleSize":"115","actions":[]}`,
+      `{"circleSize":115.5,"actions":[]}`,
+      `{"circleSize":-115,"actions":[]}`,
+      `{"circleSize":true,"actions":[]}`,
+      `{"circleSize":null,"actions":[]}`,
+    ]) {
+      expect(parseConfig(text).circleSize).toBeNull();
+    }
+  });
+
+  it("normalizes circle sizes: grid in-range, clamp out-of-range", () => {
+    expect(normalizeCircleSize(85)).toBe(85);
+    expect(normalizeCircleSize(100)).toBe(100);
+    expect(normalizeCircleSize(125)).toBe(125);
+    expect(normalizeCircleSize(112)).toBe(110);
+    expect(normalizeCircleSize(113)).toBe(115);
+    expect(normalizeCircleSize(0)).toBe(85);
+    expect(normalizeCircleSize(Number.MAX_SAFE_INTEGER)).toBe(125);
   });
 });
 
@@ -135,23 +187,30 @@ describe("sanitizeGroups + validators", () => {
     expect(validLanguage("muy largo")).toBe(false);
     expect(validTheme("deep")).toBe(true);
     expect(validTheme("sepia")).toBe(false);
+    expect(validChipLayout("ring")).toBe(true);
+    expect(validChipLayout("pills")).toBe(true);
+    expect(validChipLayout("wheel")).toBe(false);
   });
 });
 
 describe("serializeConfig + saveTo round-trip", () => {
-  it("omits defaults (language/magnify/icons/theme/groups) like Rust save_to", () => {
+  it("omits defaults (language/magnify/icons/chips/theme/circle/groups) like Rust save_to", () => {
     const text = serializeConfig({
       actions: [{ name: "A", kind: "url", value: "https://a.dev" }],
       groups: [],
       language: null,
       magnify: true,
       showIcons: true,
+      chipLayout: null,
       theme: null,
+      circleSize: null,
     });
     expect(text).not.toContain("language");
     expect(text).not.toContain("magnify");
     expect(text).not.toContain("showIcons");
+    expect(text).not.toContain("chipLayout");
     expect(text).not.toContain("theme");
+    expect(text).not.toContain("circleSize");
     expect(text).not.toContain("groups");
   });
 
@@ -163,9 +222,12 @@ describe("serializeConfig + saveTo round-trip", () => {
       language: "es",
       magnify: false,
       showIcons: true,
+      chipLayout: "pills",
       theme: null,
+      circleSize: 115,
     };
     saveTo(p, cfg);
+    expect(readFileSync(p, "utf8")).toContain('"circleSize": 115');
     expect(loadFrom(p)).toEqual(cfg);
     // Second save keeps a `.bak` of the first write.
     saveTo(p, { ...cfg, language: "en" });

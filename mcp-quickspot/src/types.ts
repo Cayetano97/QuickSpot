@@ -55,8 +55,14 @@ export interface Config {
   language: string | null;
   magnify: boolean;
   showIcons: boolean;
+  /** `null` = the default ring layout (petal wedge tiles). Only "pills"
+   * (the classic pill orbit) is pinned. */
+  chipLayout: string | null;
   /** `null` = follow the OS theme. Only light/dark/deep are pinned. */
   theme: string | null;
+  /** `null` = the design size (100%). Only a non-default launcher zoom
+   * (85..=125, 5% grid) is pinned. */
+  circleSize: number | null;
 }
 
 export function isActionKind(s: string): s is ActionKind {

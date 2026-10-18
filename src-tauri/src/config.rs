@@ -85,10 +85,14 @@ pub enum ConfigError {
 /// language override (`"system"` = follow the OS, or any BCP-47-ish code
 /// such as `"en"` / `"es"` / `"fr"`; `None` = follow the OS), the dock hover
 /// magnification flag (defaults to on), whether the action chips show
-/// their kind icons (defaults to on), and an optional appearance override
-/// (`None`/`"system"` = follow the OS: light OS -> light, dark OS -> dark;
-/// `Some("light"|"dark"|"deep")` pins the variant, `deep` being the
-/// pure-black OLED opt-in).
+/// their kind icons (defaults to on), the chip layout (`None`/`"ring"` =
+/// wedge tiles filling the disc, the default; `Some("pills")` = the classic
+/// pill orbit), an optional circle-size zoom (`None`/`100` = the design
+/// size; `Some(85..=125)` = the launcher composition scaled by
+/// `size / 100`, in either chip layout), and an optional appearance
+/// override (`None`/`"system"` = follow the OS: light OS -> light, dark OS
+/// -> dark; `Some("light"|"dark"|"deep")` pins the variant, `deep` being
+/// the pure-black OLED opt-in).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Config {
     pub actions: Vec<Action>,
@@ -96,7 +100,9 @@ pub struct Config {
     pub language: Option<String>,
     pub magnify: bool,
     pub show_icons: bool,
+    pub chip_layout: Option<String>,
     pub theme: Option<String>,
+    pub circle_size: Option<u32>,
 }
 
 impl Config {
@@ -107,7 +113,9 @@ impl Config {
             language: None,
             magnify: true,
             show_icons: true,
+            chip_layout: None,
             theme: None,
+            circle_size: None,
         }
     }
 }
@@ -131,6 +139,33 @@ pub fn valid_language(value: &str) -> bool {
 /// falls back to system, so a hand-edit can never break the UI.
 pub fn valid_theme(value: &str) -> bool {
     matches!(value, "system" | "light" | "dark" | "deep")
+}
+
+/// The accepted `chipLayout` values: `"ring"` (petal wedge tiles filling the
+/// disc, the default) or `"pills"` (the classic orbit of flat pills).
+/// Anything else falls back to the ring, so a hand-edit can never break the
+/// launcher.
+pub fn valid_chip_layout(value: &str) -> bool {
+    matches!(value, "ring" | "pills")
+}
+
+/// Circle-size bounds (percent of the design size): below 85 the 13px chip
+/// labels cross the 11px legibility floor, and at 125 the 520x580 canvas
+/// (650x725) still fits the default 680x740 OS window, so the UI can never
+/// ask for a clipped launcher. Must match `CIRCLE_SIZE_MIN`/`MAX`/`STEP` in
+/// `src/lib/circle.ts` (and the MCP server's mirror).
+pub const CIRCLE_SIZE_MIN: u32 = 85;
+pub const CIRCLE_SIZE_MAX: u32 = 125;
+pub const CIRCLE_SIZE_STEP: u32 = 5;
+/// The design size: the default, omitted from the file.
+pub const CIRCLE_SIZE_DEFAULT: u32 = 100;
+
+/// Clamp a hand-edited circle size to the window-fit range and snap it to
+/// the 5% grid the slider uses, so a value like 112 can never put the UI
+/// off the grid or out of the window.
+pub fn normalize_circle_size(value: u64) -> u32 {
+    let clamped = value.clamp(CIRCLE_SIZE_MIN.into(), CIRCLE_SIZE_MAX.into()) as u32;
+    ((clamped + CIRCLE_SIZE_STEP / 2) / CIRCLE_SIZE_STEP) * CIRCLE_SIZE_STEP
 }
 
 /// The three built-in defaults.
@@ -300,17 +335,31 @@ pub fn parse_config(text: &str) -> Result<Config, ConfigError> {
     };
     let magnify = root.get("magnify").and_then(|v| v.as_bool()).unwrap_or(true);
     let show_icons = root.get("showIcons").and_then(|v| v.as_bool()).unwrap_or(true);
+    let chip_layout = match root.get("chipLayout").and_then(|v| v.as_str()) {
+        Some(c) if valid_chip_layout(c) && c != "ring" => Some(c.to_string()),
+        _ => None,
+    };
     let theme = match root.get("theme").and_then(|v| v.as_str()) {
         Some(t) if valid_theme(t) && t != "system" => Some(t.to_string()),
         _ => None,
     };
+    // A hand-edited number is clamped to the window-fit range and snapped to
+    // the 5% slider grid; anything malformed (string, float, bool) or equal
+    // to the default collapses to `None`.
+    let circle_size = root
+        .get("circleSize")
+        .and_then(|v| v.as_u64())
+        .map(normalize_circle_size)
+        .filter(|s| *s != CIRCLE_SIZE_DEFAULT);
     Ok(Config {
         actions: out,
         groups,
         language,
         magnify,
         show_icons,
+        chip_layout,
         theme,
+        circle_size,
     })
 }
 
@@ -404,8 +453,11 @@ pub fn sanitize_groups(groups: Vec<Group>) -> Vec<Group> {
 /// Write the config back to `path` as pretty JSON (camelCase, optional
 /// fields omitted). `language: None` (system default) omits the field; so
 /// does `magnify: true` or `showIcons: true`, since on is the default; an
-/// empty group list is omitted too. `theme: None` (system) is omitted; only
-/// an explicit `light`/`dark`/`deep` pin is written.
+/// empty group list is omitted too. `chipLayout: None`/`"ring"` (the
+/// default layout) is omitted; only a `"pills"` pin is written. `theme:
+/// None` (system) is omitted; only an explicit `light`/`dark`/`deep` pin is
+/// written. `circleSize: None`/`100` (the design size) is omitted; only a
+/// non-default zoom is written.
 pub fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     let mut root = serde_json::json!({ "actions": sanitize(config.actions.clone()) });
     if !config.groups.is_empty() {
@@ -421,9 +473,20 @@ pub fn save_to(path: &Path, config: &Config) -> Result<(), String> {
     if !config.show_icons {
         root["showIcons"] = serde_json::Value::Bool(false);
     }
+    if let Some(layout) = &config.chip_layout {
+        if valid_chip_layout(layout) && layout != "ring" {
+            root["chipLayout"] = serde_json::Value::String(layout.clone());
+        }
+    }
     if let Some(theme) = &config.theme {
         if valid_theme(theme) && theme != "system" {
             root["theme"] = serde_json::Value::String(theme.clone());
+        }
+    }
+    if let Some(size) = config.circle_size {
+        let normalized = normalize_circle_size(size.into());
+        if normalized != CIRCLE_SIZE_DEFAULT {
+            root["circleSize"] = serde_json::json!(normalized);
         }
     }
     let text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
@@ -562,7 +625,9 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            chip_layout: None,
             theme: None,
+            circle_size: None,
         };
         save_to(&path, &original).unwrap();
         assert_eq!(load_from(&path), original);
@@ -622,7 +687,9 @@ mod tests {
             language: None,
             magnify: false,
             show_icons: true,
+            chip_layout: None,
             theme: None,
+            circle_size: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -655,7 +722,9 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: false,
+            chip_layout: None,
             theme: None,
+            circle_size: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -707,7 +776,9 @@ mod tests {
             language: Some("es".into()),
             magnify: false,
             show_icons: false,
+            chip_layout: None,
             theme: None,
+            circle_size: None,
         };
         save_to(&path, &original).unwrap();
         assert_eq!(load_from(&path), original);
@@ -724,7 +795,9 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            chip_layout: None,
             theme: None,
+            circle_size: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -834,7 +907,9 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            chip_layout: None,
             theme: None,
+            circle_size: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -968,7 +1043,9 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            chip_layout: None,
             theme: None,
+            circle_size: None,
         };
         save_to(&path, &original).unwrap();
         assert_eq!(load_from(&path), original);
@@ -1005,6 +1082,61 @@ mod tests {
     }
 
     #[test]
+    fn chip_layout_defaults_to_ring() {
+        let config = parse_config(r#"{"actions":[]}"#).unwrap();
+        assert_eq!(config.chip_layout, None);
+    }
+
+    #[test]
+    fn chip_layout_is_parsed_when_pinned_to_pills() {
+        let pills = parse_config(r#"{"chipLayout":"pills","actions":[]}"#).unwrap();
+        assert_eq!(pills.chip_layout.as_deref(), Some("pills"));
+    }
+
+    #[test]
+    fn chip_layout_falls_back_to_ring_when_unknown() {
+        for text in [
+            r#"{"chipLayout":"ring","actions":[]}"#,
+            r#"{"chipLayout":"wheel","actions":[]}"#,
+            r#"{"chipLayout":"","actions":[]}"#,
+            r#"{"chipLayout":42,"actions":[]}"#,
+        ] {
+            let config = parse_config(text).unwrap();
+            assert_eq!(config.chip_layout, None, "{text}");
+        }
+    }
+
+    #[test]
+    fn chip_layout_is_written_only_when_pinned_to_pills() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("quickspot-save-chips-{}.json", std::process::id()));
+        let config = Config {
+            actions: vec![action("Vercel", "https://vercel.com")],
+            groups: Vec::new(),
+            language: None,
+            magnify: true,
+            show_icons: true,
+            chip_layout: Some("pills".into()),
+            theme: None,
+            circle_size: None,
+        };
+        save_to(&path, &config).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"chipLayout\": \"pills\""));
+        assert_eq!(load_from(&path), config);
+        let _ = std::fs::remove_file(&path);
+
+        let ring = Config {
+            chip_layout: None,
+            ..config
+        };
+        save_to(&path, &ring).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("chipLayout"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn theme_is_written_only_when_pinned() {
         let mut path = std::env::temp_dir();
         path.push(format!("quickspot-save-theme-{}.json", std::process::id()));
@@ -1014,7 +1146,9 @@ mod tests {
             language: None,
             magnify: true,
             show_icons: true,
+            chip_layout: None,
             theme: Some("deep".into()),
+            circle_size: None,
         };
         save_to(&path, &config).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -1031,5 +1165,84 @@ mod tests {
         assert!(!text.contains("theme"));
         assert_eq!(load_from(&path), system);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn circle_size_defaults_to_none() {
+        let config = parse_config(r#"{"actions":[]}"#).unwrap();
+        assert_eq!(config.circle_size, None);
+        // The design size is the default: an explicit 100 collapses too.
+        let config = parse_config(r#"{"circleSize":100,"actions":[]}"#).unwrap();
+        assert_eq!(config.circle_size, None);
+    }
+
+    #[test]
+    fn circle_size_is_parsed_and_snapped_when_present() {
+        let config = parse_config(r#"{"circleSize":115,"actions":[]}"#).unwrap();
+        assert_eq!(config.circle_size, Some(115));
+        // Off-grid and out-of-range hand-edits snap/clamp to the 5% grid.
+        let config = parse_config(r#"{"circleSize":113,"actions":[]}"#).unwrap();
+        assert_eq!(config.circle_size, Some(115));
+        let config = parse_config(r#"{"circleSize":82,"actions":[]}"#).unwrap();
+        assert_eq!(config.circle_size, Some(85));
+        let config = parse_config(r#"{"circleSize":900,"actions":[]}"#).unwrap();
+        assert_eq!(config.circle_size, Some(125));
+    }
+
+    #[test]
+    fn circle_size_falls_back_to_default_for_malformed_values() {
+        for text in [
+            r#"{"circleSize":"115","actions":[]}"#,
+            r#"{"circleSize":115.5,"actions":[]}"#,
+            r#"{"circleSize":true,"actions":[]}"#,
+            r#"{"circleSize":null,"actions":[]}"#,
+        ] {
+            let config = parse_config(text).unwrap();
+            assert_eq!(config.circle_size, None, "{text}");
+        }
+    }
+
+    #[test]
+    fn circle_size_is_written_only_when_not_the_design_size() {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "quickspot-save-circle-{}.json",
+            std::process::id()
+        ));
+        let config = Config {
+            actions: vec![action("Vercel", "https://vercel.com")],
+            groups: Vec::new(),
+            language: None,
+            magnify: true,
+            show_icons: true,
+            chip_layout: None,
+            theme: None,
+            circle_size: Some(115),
+        };
+        save_to(&path, &config).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"circleSize\": 115"));
+        assert_eq!(load_from(&path), config);
+        let _ = std::fs::remove_file(&path);
+
+        let design = Config {
+            circle_size: None,
+            ..config
+        };
+        save_to(&path, &design).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("circleSize"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn normalize_circle_size_snaps_to_the_grid_and_clamps() {
+        assert_eq!(normalize_circle_size(85), 85);
+        assert_eq!(normalize_circle_size(100), 100);
+        assert_eq!(normalize_circle_size(125), 125);
+        assert_eq!(normalize_circle_size(112), 110);
+        assert_eq!(normalize_circle_size(113), 115);
+        assert_eq!(normalize_circle_size(0), 85);
+        assert_eq!(normalize_circle_size(u64::MAX), 125);
     }
 }

@@ -83,6 +83,34 @@ export function validTheme(value: string): boolean {
   return value === "system" || value === "light" || value === "dark" || value === "deep";
 }
 
+/** The accepted `chipLayout` values: `"ring"` (the default petal wedge
+ * tiles) or `"pills"` (the classic pill orbit). Mirrors Rust
+ * `valid_chip_layout`. */
+export function validChipLayout(value: string): boolean {
+  return value === "ring" || value === "pills";
+}
+
+/** Circle-size bounds (percent of the design size): below 85 the 13px chip
+ * labels cross the 11px legibility floor, and at 125 the 520x580 canvas
+ * (650x725) still fits the default 680x740 OS window, so the UI can never
+ * ask for a clipped launcher. Must match `CIRCLE_SIZE_MIN`/`MAX`/`STEP` in
+ * `src-tauri/src/config.rs` and `src/lib/circle.ts`. */
+export const CIRCLE_SIZE_MIN = 85;
+export const CIRCLE_SIZE_MAX = 125;
+export const CIRCLE_SIZE_STEP = 5;
+/** The design size: the default, omitted from the file. */
+export const CIRCLE_SIZE_DEFAULT = 100;
+
+/** Clamp a hand-edited circle size to the window-fit range and snap it to
+ * the 5% grid the slider uses, so a value like 112 can never put the UI
+ * off the grid or out of the window. Mirrors Rust `normalize_circle_size`;
+ * callers only pass non-negative integers (the `as_u64` domain). */
+export function normalizeCircleSize(value: number): number {
+  const clamped = Math.min(Math.max(value, CIRCLE_SIZE_MIN), CIRCLE_SIZE_MAX);
+  const step = Math.floor(CIRCLE_SIZE_STEP / 2);
+  return Math.floor((clamped + step) / CIRCLE_SIZE_STEP) * CIRCLE_SIZE_STEP;
+}
+
 /** The three built-in defaults (`defaults()` in Rust). */
 export function defaults(): Action[] {
   return [
@@ -93,7 +121,16 @@ export function defaults(): Action[] {
 }
 
 export function withDefaults(): Config {
-  return { actions: defaults(), groups: [], language: null, magnify: true, showIcons: true, theme: null };
+  return {
+    actions: defaults(),
+    groups: [],
+    language: null,
+    magnify: true,
+    showIcons: true,
+    chipLayout: null,
+    theme: null,
+    circleSize: null,
+  };
 }
 
 function parseKind(value: unknown): ActionKind | null {
@@ -184,10 +221,26 @@ export function parseConfig(text: string): Config {
     typeof r.language === "string" && validLanguage(r.language) ? r.language : null;
   const magnify = typeof r.magnify === "boolean" ? r.magnify : true;
   const showIcons = typeof r.showIcons === "boolean" ? r.showIcons : true;
+  const chipLayout =
+    typeof r.chipLayout === "string" &&
+    validChipLayout(r.chipLayout) &&
+    r.chipLayout !== "ring"
+      ? r.chipLayout
+      : null;
   const theme =
     typeof r.theme === "string" && validTheme(r.theme) && r.theme !== "system" ? r.theme : null;
+  // A hand-edited number is clamped to the window-fit range and snapped to
+  // the 5% slider grid; anything malformed (string, float, bool, negative)
+  // or equal to the default collapses to `null` (mirrors Rust `as_u64` +
+  // `filter`).
+  const rawCircle = r.circleSize;
+  const normalized =
+    typeof rawCircle === "number" && Number.isInteger(rawCircle) && rawCircle >= 0
+      ? normalizeCircleSize(rawCircle)
+      : null;
+  const circleSize = normalized !== null && normalized !== CIRCLE_SIZE_DEFAULT ? normalized : null;
 
-  return { actions, groups, language, magnify, showIcons, theme };
+  return { actions, groups, language, magnify, showIcons, chipLayout, theme, circleSize };
 }
 
 /** Read + parse exactly once. Missing file or any parse error -> defaults. */
@@ -270,8 +323,19 @@ export function serializeConfig(config: Config): string {
   if (config.language) root.language = config.language;
   if (!config.magnify) root.magnify = false;
   if (!config.showIcons) root.showIcons = false;
+  if (
+    config.chipLayout &&
+    validChipLayout(config.chipLayout) &&
+    config.chipLayout !== "ring"
+  ) {
+    root.chipLayout = config.chipLayout;
+  }
   if (config.theme && validTheme(config.theme) && config.theme !== "system") {
     root.theme = config.theme;
+  }
+  if (typeof config.circleSize === "number" && Number.isInteger(config.circleSize)) {
+    const normalized = normalizeCircleSize(config.circleSize);
+    if (normalized !== CIRCLE_SIZE_DEFAULT) root.circleSize = normalized;
   }
   return JSON.stringify(root, null, 2) + "\n";
 }

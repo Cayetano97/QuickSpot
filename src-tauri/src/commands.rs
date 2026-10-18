@@ -15,7 +15,10 @@ use crate::{AppState, DragFlag};
 /// What the webview gets on boot and after every reload: the action list,
 /// the group definitions, the language override (`null` = follow the OS
 /// language), whether the dock hover magnification is enabled, whether
-/// the action chips show their kind icons, and the appearance override
+/// the action chips show their kind icons, the chip layout (`null` = the
+/// petal ring, the default; `"pills"` = the classic orbit), the circle
+/// size (`null`/`100` = the design size; `85..=125` = the launcher
+/// composition zoomed by `size / 100`) and the appearance override
 /// (`null` = follow the OS: light -> light, dark -> dark; `deep` is an
 /// explicit opt-in pin).
 #[derive(Clone, Serialize)]
@@ -26,7 +29,9 @@ pub struct ConfigPayload {
     pub language: Option<String>,
     pub magnify: bool,
     pub show_icons: bool,
+    pub chip_layout: Option<String>,
     pub theme: Option<String>,
+    pub circle_size: Option<u32>,
 }
 
 impl From<&config::Config> for ConfigPayload {
@@ -37,7 +42,9 @@ impl From<&config::Config> for ConfigPayload {
             language: c.language.clone(),
             magnify: c.magnify,
             show_icons: c.show_icons,
+            chip_layout: c.chip_layout.clone(),
             theme: c.theme.clone(),
+            circle_size: c.circle_size,
         }
     }
 }
@@ -111,8 +118,12 @@ pub fn reload_config(app: AppHandle) {
 }
 
 /// Persist the settings panel's actions + groups + language + magnify +
-/// showIcons + theme toggles to the config file, then reload + broadcast (the
-/// webview re-filters/re-localizes on the sanitized payload).
+/// showIcons + chipLayout + theme toggles to the config file, then reload +
+/// broadcast (the webview re-filters/re-localizes on the sanitized payload).
+/// `chip_layout` is normalized here the same way the parser does: only a
+/// known pin ("pills") survives. `circle_size` is clamped to the
+/// window-fit range and snapped to the 5% slider grid; the design size
+/// (100) is dropped, so the field is only written when it means something.
 #[tauri::command]
 pub fn save_config(
     app: AppHandle,
@@ -121,7 +132,9 @@ pub fn save_config(
     language: Option<String>,
     magnify: bool,
     show_icons: bool,
+    chip_layout: Option<String>,
     theme: Option<String>,
+    circle_size: Option<u32>,
 ) -> Result<(), String> {
     let state = app.state::<AppState>();
     let cfg = config::Config {
@@ -130,7 +143,11 @@ pub fn save_config(
         language,
         magnify,
         show_icons,
+        chip_layout: chip_layout.filter(|c| config::valid_chip_layout(c) && c != "ring"),
         theme,
+        circle_size: circle_size
+            .map(|s| config::normalize_circle_size(s.into()))
+            .filter(|s| *s != config::CIRCLE_SIZE_DEFAULT),
     };
     config::save_to(&state.config_path, &cfg)?;
     reload_config(app);

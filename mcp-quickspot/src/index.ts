@@ -89,7 +89,7 @@ export function createServer(): McpServer {
   server.registerTool(
     "get-config",
     {
-      description: "Return the full quickspot.config.json (actions, groups, language, theme) and the resolved path. Read-only.",
+      description: "Return the full quickspot.config.json (actions, groups, language, chip layout, theme, circle size) and the resolved path. Read-only.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
@@ -312,7 +312,9 @@ export function createServer(): McpServer {
       const skipped = rawActions - parsed.actions.length;
       return textResult(
         `Valid. Actions: ${parsed.actions.length} (skipped: ${skipped}), groups: ${parsed.groups.length}, ` +
-          `language: ${parsed.language ?? "system"}, icons: ${parsed.showIcons}, magnify: ${parsed.magnify}, theme: ${parsed.theme ?? "system"}.`,
+          `language: ${parsed.language ?? "system"}, icons: ${parsed.showIcons}, magnify: ${parsed.magnify}, ` +
+          `chips: ${parsed.chipLayout ?? "ring"}, theme: ${parsed.theme ?? "system"}, ` +
+          `circle: ${parsed.circleSize ?? 100}%.`,
       );
     },
   );
