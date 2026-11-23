@@ -504,6 +504,22 @@ describe("filtering", () => {
     expect(bodies[1].style.pointerEvents).toBe("none");
   });
 
+  it("lifts the single match's content onto the label band, clear of the query pill", async () => {
+    await openOverlay();
+    typeQuery("g");
+    expect(visibleChips()).toBe(1);
+    const chip = document.querySelector<HTMLElement>(".chip")!;
+    const lift = Number.parseFloat(chip.style.getPropertyValue("--chip-content-lift"));
+    expect(lift).toBeGreaterThan(0);
+    // The lone tile is a closed ring (outer + inner subpath), no seam.
+    const d = chip.querySelector(".petal-body")!.getAttribute("d")!;
+    expect(d.match(/M /g)).toHaveLength(2);
+    // Rings that already pivot on the band keep their content untouched.
+    typeQuery("");
+    const four = Number.parseFloat(chip.style.getPropertyValue("--chip-content-lift"));
+    expect(four).toBeLessThan(lift);
+  });
+
   it("a config reload that shrinks the list never reads stale match indices", async () => {
     typeQuery("github");
     // The old payload's matches point past the new list; switching the layout

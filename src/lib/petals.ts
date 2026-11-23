@@ -43,6 +43,11 @@ const HIT_SLACK = 2;
 /** Mid radius of the band: the radial line every tile's content rides. */
 export const PETAL_MID_R = (PETAL_INNER_R + PETAL_OUTER_R) / 2;
 
+/** Radius of the label band's centre line, inward of the tile mid radius.
+ *  Every tile's content column is anchored on (or outside) this radius, so
+ *  it always stays in the annulus and clear of the centre controls. */
+export const PETAL_LABEL_R = PETAL_MID_R - LABEL_R_OFFSET;
+
 const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 export type PetalSegment =
@@ -182,13 +187,41 @@ export function petalOutline(total: number): PetalOutline {
 }
 
 /** The tile of `total` petals as an SVG path in box coordinates. The path is
- * identical for every tile of a ring, so it is memoized per count: laying
- * out eight tiles must not rebuild the same string eight times. */
+ *  identical for every tile of a ring, so it is memoized per count: laying
+ *  out eight tiles must not rebuild the same string eight times. A lone tile
+ *  is a closed annulus (no seam) instead of a 360° sector. */
 const petalPathCache = new Map<number, string>();
+
+/** The single-action ring has no neighbours, so it draws as one closed
+ *  annulus: the 360° sector's 6px seam is only a gap between tiles and, with
+ *  a lone tile, reads as a handle sticking out of the disc. */
+function singleRingPath(): string {
+  const { w, discY } = boxFor(wedgeFor(1));
+  const cx = w / 2;
+  const outer = PETAL_OUTER_R;
+  const inner = PETAL_INNER_R;
+  const r = round2;
+  return [
+    `M ${r(cx)} ${r(discY - outer)}`,
+    `A ${r(outer)} ${r(outer)} 0 1 1 ${r(cx)} ${r(discY + outer)}`,
+    `A ${r(outer)} ${r(outer)} 0 1 1 ${r(cx)} ${r(discY - outer)}`,
+    "Z",
+    `M ${r(cx)} ${r(discY - inner)}`,
+    `A ${r(inner)} ${r(inner)} 0 1 0 ${r(cx)} ${r(discY + inner)}`,
+    `A ${r(inner)} ${r(inner)} 0 1 0 ${r(cx)} ${r(discY - inner)}`,
+    "Z",
+  ].join(" ");
+}
 
 export function petalPath(total: number): string {
   const cached = petalPathCache.get(total);
   if (cached !== undefined) return cached;
+  const path = total === 1 ? singleRingPath() : sectorPath(total);
+  petalPathCache.set(total, path);
+  return path;
+}
+
+function sectorPath(total: number): string {
   const { from, segments } = petalOutline(total);
   const parts = [`M ${round2(from[0])} ${round2(from[1])}`];
   for (const seg of segments) {
@@ -202,9 +235,7 @@ export function petalPath(total: number): string {
     }
   }
   parts.push("Z");
-  const path = parts.join(" ");
-  petalPathCache.set(total, path);
-  return path;
+  return parts.join(" ");
 }
 
 /** Everything a tile of a given ring size shares: box, pivot, outline and
@@ -214,6 +245,10 @@ interface RingGeometry {
   w: number;
   h: number;
   pivotR: number;
+  /** Extra outward offset (px) for the content column. Narrow tiles pivot
+   *  already on the label band; wide tiles wrap the centre, so their pivot
+   *  slides inward and the content needs a lift to stay in the annulus. */
+  contentLift: number;
   path: string;
   labelW: number;
 }
@@ -225,14 +260,16 @@ function ringGeometryFor(total: number): RingGeometry {
   if (cached) return cached;
   const wedge = wedgeFor(total);
   const { w, h, discY } = boxFor(wedge);
+  const pivotR = discY - h / 2;
   const geometry: RingGeometry = {
     w,
     h,
-    pivotR: discY - h / 2,
+    pivotR,
+    contentLift: Math.max(0, PETAL_LABEL_R - pivotR),
     path: petalPath(total),
     labelW: Math.min(
       160,
-      Math.max(48, 2 * (PETAL_MID_R - LABEL_R_OFFSET) * spreadFor(wedge) - 16),
+      Math.max(48, 2 * PETAL_LABEL_R * spreadFor(wedge) - 16),
     ),
   };
   ringGeometryCache.set(total, geometry);
@@ -258,6 +295,10 @@ export interface PetalLayout {
   path: string;
   /** Max width for the label at its radial band. */
   labelW: number;
+  /** Outward offset (px) from the element's box centre to the content
+   *  anchor: keeps wide tiles' icon/label column on the label band instead
+   *  of over the centre controls. Zero for most rings. */
+  contentLift: number;
 }
 
 export function petalLayout(index: number, total: number): PetalLayout {
@@ -282,6 +323,7 @@ export function petalLayout(index: number, total: number): PetalLayout {
     flip: Math.cos((rotation * Math.PI) / 180) < -1e-6,
     path: geometry.path,
     labelW: geometry.labelW,
+    contentLift: geometry.contentLift,
   };
 }
 

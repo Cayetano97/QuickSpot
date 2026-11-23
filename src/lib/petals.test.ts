@@ -34,6 +34,7 @@ import {
   SELECTION_BOOST,
 } from "./constants";
 import {
+  PETAL_LABEL_R,
   PETAL_MID_R,
   petalAtPointer,
   petalLayout,
@@ -132,6 +133,20 @@ describe("petalOutline", () => {
       expect(outline.segments.filter((s) => s.kind === "line")).toHaveLength(2);
     }
   });
+
+  it("draws the single tile as a closed ring instead of a sector with a seam", () => {
+    const path = petalPath(1);
+    // Outer ring + inner hole: two subpaths, arcs only, no radial seam.
+    const starts = [...path.matchAll(/M ([\d.]+) ([\d.]+)/g)].map((m) => Number(m[2]));
+    expect(starts).toHaveLength(2);
+    expect(path).not.toContain("L ");
+    const outline = petalOutline(1);
+    const tops = [
+      outline.discCenter[1] - PETAL_OUTER_R,
+      outline.discCenter[1] - PETAL_INNER_R,
+    ];
+    expect(starts.sort((a, b) => a - b)).toEqual(tops);
+  });
 });
 
 describe("petalLayout", () => {
@@ -197,6 +212,21 @@ describe("petalLayout", () => {
       expect(labelW).toBeGreaterThanOrEqual(48);
       expect(labelW).toBeLessThanOrEqual(160);
     }
+  });
+
+  it("anchors every tile's content on the label band, clear of the centre", () => {
+    for (const total of TOTALS) {
+      const layout = petalLayout(0, total);
+      const contentR = petalPivotR(total) + layout.contentLift;
+      expect(contentR).toBeGreaterThanOrEqual(PETAL_LABEL_R);
+      // The lift is only the distance missing to the band, never extra.
+      expect(contentR).toBeCloseTo(Math.max(petalPivotR(total), PETAL_LABEL_R), 9);
+    }
+    // The single tile pivots on the disc centre: its content must be lifted
+    // out of the centre cluster (the reported overlap with the query pill).
+    expect(petalLayout(0, 1).contentLift).toBeGreaterThan(PETAL_MID_R / 2);
+    // Rings whose pivot already sits on the band keep their content there.
+    expect(petalLayout(0, 8).contentLift).toBe(0);
   });
 });
 

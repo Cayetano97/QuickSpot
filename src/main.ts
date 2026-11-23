@@ -942,6 +942,7 @@ function layoutChips(count: number): void {
     el.style.height = `${px(layout.h)}px`;
     el.style.setProperty("--chip-flip", layout.flip ? "180deg" : "0deg");
     el.style.setProperty("--chip-label-w", `${px(layout.labelW)}px`);
+    el.style.setProperty("--chip-content-lift", `${px(layout.contentLift)}px`);
   }
 }
 

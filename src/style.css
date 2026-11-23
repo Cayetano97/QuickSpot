@@ -870,7 +870,10 @@ button {
 .chip .chip-content {
   position: absolute;
   left: 50%;
-  top: 50%;
+  /* Anchored on the label band: wide tiles pivot near the disc centre, so
+     `--chip-content-lift` pushes their icon/label column outward, clear of
+     the query pill and the rest of the centre cluster. */
+  top: calc(50% - var(--chip-content-lift, 0px));
   transform: translate(-50%, -50%) rotate(var(--chip-flip, 0deg));
   display: flex;
   flex-direction: column;
