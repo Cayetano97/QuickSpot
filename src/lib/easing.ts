@@ -76,7 +76,12 @@ export function dockScale(
   isSelected: boolean,
   radius = DOCK_RADIUS,
 ): number {
-  const dist = Math.hypot(chipCx - mouseX, chipCy - mouseY);
+  const dx = chipCx - mouseX;
+  const dy = chipCy - mouseY;
+  // Plain sqrt instead of Math.hypot: coordinates are a few hundred px, so
+  // there is nothing to overflow, and this runs for every tile on every
+  // pointermove (hypot's overflow handling is markedly slower).
+  const dist = Math.sqrt(dx * dx + dy * dy);
   const base = isSelected ? SELECTION_BOOST : 1;
 
   if (dist >= radius) return base;

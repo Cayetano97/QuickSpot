@@ -109,8 +109,7 @@ function boxFor(wedge: number): { w: number; h: number; discY: number } {
  *  disc centre as a tile wraps, reaching 0 for the single-action ring whose
  *  box is the full disc. */
 export function petalPivotR(total: number): number {
-  const { h, discY } = boxFor(wedgeFor(total));
-  return discY - h / 2;
+  return ringGeometryFor(total).pivotR;
 }
 
 /**
@@ -182,8 +181,14 @@ export function petalOutline(total: number): PetalOutline {
   return { from: at(-psiOut, PETAL_OUTER_R), segments, w, h, discCenter: [cx, discY], corner };
 }
 
-/** The tile of `total` petals as an SVG path in box coordinates. */
+/** The tile of `total` petals as an SVG path in box coordinates. The path is
+ * identical for every tile of a ring, so it is memoized per count: laying
+ * out eight tiles must not rebuild the same string eight times. */
+const petalPathCache = new Map<number, string>();
+
 export function petalPath(total: number): string {
+  const cached = petalPathCache.get(total);
+  if (cached !== undefined) return cached;
   const { from, segments } = petalOutline(total);
   const parts = [`M ${round2(from[0])} ${round2(from[1])}`];
   for (const seg of segments) {
@@ -197,7 +202,41 @@ export function petalPath(total: number): string {
     }
   }
   parts.push("Z");
-  return parts.join(" ");
+  const path = parts.join(" ");
+  petalPathCache.set(total, path);
+  return path;
+}
+
+/** Everything a tile of a given ring size shares: box, pivot, outline and
+ * label width. Cached per count so `petalLayout` only computes the
+ * per-index angle math on a relayout. */
+interface RingGeometry {
+  w: number;
+  h: number;
+  pivotR: number;
+  path: string;
+  labelW: number;
+}
+
+const ringGeometryCache = new Map<number, RingGeometry>();
+
+function ringGeometryFor(total: number): RingGeometry {
+  const cached = ringGeometryCache.get(total);
+  if (cached) return cached;
+  const wedge = wedgeFor(total);
+  const { w, h, discY } = boxFor(wedge);
+  const geometry: RingGeometry = {
+    w,
+    h,
+    pivotR: discY - h / 2,
+    path: petalPath(total),
+    labelW: Math.min(
+      160,
+      Math.max(48, 2 * (PETAL_MID_R - LABEL_R_OFFSET) * spreadFor(wedge) - 16),
+    ),
+  };
+  ringGeometryCache.set(total, geometry);
+  return geometry;
 }
 
 export interface PetalLayout {
@@ -222,32 +261,27 @@ export interface PetalLayout {
 }
 
 export function petalLayout(index: number, total: number): PetalLayout {
-  const wedge = wedgeFor(total);
-  const { w, h } = boxFor(wedge);
+  const geometry = ringGeometryFor(total);
   const step = TAU / total;
   const angle = -Math.PI / 2 + step * index;
   const rotation = (360 / total) * index;
   // The rotation pivot is the box centre: placing it on the tile's radial
   // axis at the pivot radius makes the element rotation sweep the shape
   // along the ring, whatever the box proportions.
-  const pivotR = petalPivotR(total);
-  const labelW = Math.min(
-    160,
-    Math.max(48, 2 * (PETAL_MID_R - LABEL_R_OFFSET) * spreadFor(wedge) - 16),
-  );
+  const pivotR = geometry.pivotR;
   return {
     index,
     total,
     cx: CENTER_X + Math.cos(angle) * pivotR,
     cy: CENTER_Y + Math.sin(angle) * pivotR,
-    w,
-    h,
+    w: geometry.w,
+    h: geometry.h,
     rotation,
     // Cos of exactly 90°/270° is ±1e-16 in doubles: treat the cardinals as
     // upright so neighbouring tiles never disagree about the flip.
     flip: Math.cos((rotation * Math.PI) / 180) < -1e-6,
-    path: petalPath(total),
-    labelW,
+    path: geometry.path,
+    labelW: geometry.labelW,
   };
 }
 
@@ -260,7 +294,7 @@ export function petalAtPointer(x: number, y: number, total: number): number {
   if (total <= 0) return -1;
   const dx = x - CENTER_X;
   const dy = y - CENTER_Y;
-  const r = Math.hypot(dx, dy);
+  const r = Math.sqrt(dx * dx + dy * dy);
   if (r < PETAL_INNER_R - HIT_SLACK || r > PETAL_OUTER_R + HIT_SLACK) return -1;
   // Angle from 12 o'clock, clockwise, in [0, TAU).
   const turn = ((Math.atan2(dx, -dy) % TAU) + TAU) % TAU;

@@ -2,7 +2,10 @@
 //! `std::process::Command` (no JS shell, no tauri-plugin-shell); the
 //! default-browser case goes through tauri-plugin-opener.
 
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
@@ -183,12 +186,12 @@ fn spawn_one(app: &AppHandle, exec: &Execution) -> Result<(), String> {
             .map_err(|e| e.to_string()),
         Execution::Shell { program, args } => {
             let mut cmd = Command::new(program);
-            cmd.args(args.clone());
+            cmd.args(args);
             spawn_detached(&mut cmd)
         }
         Execution::App { program, args } => {
             let mut cmd = Command::new(program);
-            cmd.args(args.clone());
+            cmd.args(args);
             spawn_detached(&mut cmd)
         }
         Execution::Sequence(_) => Err("nested sequences are not supported".into()),
@@ -240,7 +243,59 @@ fn spawn_detached(cmd: &mut Command) -> Result<(), String> {
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+    let child = cmd.spawn().map_err(|e| e.to_string())?;
+    reap(child);
+    Ok(())
+}
+
+/// Hand a detached child to the single reaper thread. Dropping a `Child`
+/// without waiting leaves a zombie on Unix for as long as this tray app
+/// lives; `wait()` on the IPC path would block the action. The reaper keeps
+/// the live children in a list, blocks on the channel while there are none
+/// (zero idle cost) and polls `try_wait` twice a second only while at least
+/// one child is alive.
+fn reap(child: Child) {
+    static REAPER: OnceLock<Sender<Child>> = OnceLock::new();
+    let tx = REAPER.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<Child>();
+        let spawned = std::thread::Builder::new()
+            .name("quickspot-reaper".into())
+            .spawn(move || {
+                let mut children: Vec<Child> = Vec::new();
+                loop {
+                    if children.is_empty() {
+                        match rx.recv() {
+                            Ok(child) => children.push(child),
+                            Err(_) => return,
+                        }
+                    } else {
+                        match rx.recv_timeout(Duration::from_millis(500)) {
+                            Ok(child) => children.push(child),
+                            Err(RecvTimeoutError::Timeout) => {}
+                            Err(RecvTimeoutError::Disconnected) => return,
+                        }
+                    }
+                    children.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
+                }
+            });
+        if spawned.is_err() {
+            // No reaper thread: the receiver is gone and every `send` below
+            // fails, which falls back to a dedicated waiter per child.
+            eprintln!("[quickspot] could not start the child reaper");
+        }
+        tx
+    });
+    if let Err(err) = tx.send(child) {
+        // Reaper unavailable: wait off the caller's thread rather than leak
+        // the zombie (this app lives in the tray for days, the child does not).
+        let child = err.0;
+        let _ = std::thread::Builder::new()
+            .name("quickspot-wait".into())
+            .spawn(move || {
+                let mut child = child;
+                let _ = child.wait();
+            });
+    }
 }
 
 #[cfg(test)]
@@ -530,5 +585,47 @@ mod tests {
         assert_eq!(plan(&a), Execution::Sequence(vec![]));
         let a = sequence_action(vec![step(ActionKind::Url, "   ")]);
         assert_eq!(plan(&a), Execution::Sequence(vec![]));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn detached_children_are_reaped_without_zombies() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "exit 0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let child = cmd.spawn().unwrap();
+        let pid = child.id().to_string();
+        reap(child);
+        // The reaper polls twice a second; one quiet period is enough for a
+        // process that already exited.
+        std::thread::sleep(Duration::from_millis(600));
+        let out = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid])
+            .output()
+            .unwrap();
+        let stat = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !stat.trim_start().starts_with('Z'),
+            "child {pid} was left as a zombie: {stat}"
+        );
+    }
+
+    #[test]
+    fn detached_commands_spawn_and_hand_off_to_the_reaper() {
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut cmd = Command::new("cmd");
+            cmd.args(["/c", "exit 0"]);
+            cmd
+        };
+        #[cfg(not(windows))]
+        let mut cmd = {
+            let mut cmd = Command::new("sh");
+            cmd.args(["-c", "exit 0"]);
+            cmd
+        };
+        assert!(spawn_detached(&mut cmd).is_ok());
     }
 }

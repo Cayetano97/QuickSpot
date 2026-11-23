@@ -57,12 +57,12 @@ import {
 } from "./lib/theme";
 import {
   capUtf8Bytes,
-  countMatches,
-  filterActions,
   isHexColor,
   isReadableOnDark,
+  matchActions,
   MAX_SEQUENCE_STEPS,
   moveSelection,
+  normalizeActionNames,
   normalizeName,
   normalizeQuery,
   SEQUENCE_STEP_KINDS,
@@ -79,14 +79,27 @@ const overlay = new OverlayState(undefined, () =>
 );
 
 let actions: Action[] = [];
+/** Normalized action names, rebuilt once per config payload: a keystroke must
+ * never re-run Unicode normalization over the whole action list. */
+let actionNames: readonly string[] = [];
 let groups: Group[] = [];
+/** id -> group lookup for the current config, so rendering eight chips never
+ *  scans the group list eight times. */
+let groupById = new Map<string, Group>();
 let filtered: number[] = [];
+/** Every action matching the current query (uncapped). `filtered` holds at
+ * most MAX_VISIBLE; this is what the "N more" caption reads, computed in the
+ * same pass instead of scanning the list again (and again, on every frame). */
+let matchTotal = 0;
 let selected = 0;
 /** Who owns the selection highlight: the cursor (hover) or the keyboard.
  * A mouse-owned highlight is released as soon as the cursor is no longer
  * over a chip; a keyboard-owned one survives until the cursor takes over. */
 let selectionSource: "mouse" | "keyboard" | "none" = "none";
 let queryText = "";
+/** `normalizeQuery(queryText)`, refreshed on every query edit. The render
+ * loop and the empty state read it instead of re-normalizing per frame. */
+let normalizedQuery = "";
 /** Cursor in canvas-logical coords; far off-canvas until the first pointermove. */
 let mouseX = -10000;
 let mouseY = -10000;
@@ -185,6 +198,21 @@ let actionsAdd: HTMLButtonElement | null = null;
 let activeActionsTab: "actions" | "groups" = "actions";
 
 let uiScale = 1;
+
+/** Cached `#launcher` border box for pointer mapping. Reading it on every
+ * pointermove forces a style/layout flush (the hover path just wrote chip
+ * styles); the box only changes when the window or the launcher scale does,
+ * so it is measured lazily and invalidated at those few points. */
+let launcherRect: DOMRect | null = null;
+
+function invalidateLauncherRect(): void {
+  launcherRect = null;
+}
+
+function launcherRectNow(): DOMRect {
+  if (!launcherRect) launcherRect = launcher.getBoundingClientRect();
+  return launcherRect;
+}
 
 // ---------------------------------------------------------------- updater
 //
@@ -516,13 +544,19 @@ settingsUpdateBtn.addEventListener("click", () => {
 function syncUiScale(): void {
   // Scale against the OS window (680x740): the launcher canvas stays 520x580
   // centered inside it, so the whole overlay shrinks as one on small screens.
-  uiScale = Math.max(0.5, Math.min(1, window.innerWidth / 680, window.innerHeight / 740));
+  const next = Math.max(0.5, Math.min(1, window.innerWidth / 680, window.innerHeight / 740));
+  if (next === uiScale && launcherRect !== null) return;
+  uiScale = next;
   root.style.setProperty("--overlay-scale", String(uiScale));
+  invalidateLauncherRect();
 }
 
 syncUiScale();
 window.addEventListener("resize", () => {
   syncUiScale();
+  // The viewport grew/shrank, so the centered launcher moved relative to it
+  // even when the fit scale stayed at 1.
+  invalidateLauncherRect();
   // A resize moves every anchor: repositioning could flicker, so dismiss like
   // a background scroll (same Material/Apple rule).
   if (typeof dismissFloatingPickers === "function") dismissFloatingPickers();
@@ -531,6 +565,14 @@ window.addEventListener("resize", () => {
 const chips: HTMLButtonElement[] = [];
 const chipLabels: HTMLElement[] = [];
 const chipIcons: HTMLElement[] = [];
+/** What each chip currently renders, so selection/hover updates never rewrite
+ *  unchanged icons, labels or group colors (innerHTML re-parses SVG markup). */
+const chipKinds: Array<Action["kind"] | null> = [];
+const chipGroupIds: Array<string | null> = [];
+const chipGroupColors: Array<string | null> = [];
+/** Last transform string written per chip: transforms are the hottest style
+ *  the pointer path touches, and most moves don't change them at all. */
+const chipTransforms: string[] = [];
 
 /** One tile's SVG. The single `body` path paints the fill and the WCAG
  *  1.4.11 boundary stroke (the outline lives in `src/lib/petals.ts`). */
@@ -577,6 +619,10 @@ function buildChips(): void {
   chips.length = 0;
   chipLabels.length = 0;
   chipIcons.length = 0;
+  chipKinds.length = 0;
+  chipGroupIds.length = 0;
+  chipGroupColors.length = 0;
+  chipTransforms.length = 0;
   chipPetals.length = 0;
   chipGeom.length = 0;
   laidOutCount = -1;
@@ -609,6 +655,9 @@ function buildChips(): void {
     chips.push(chip);
     chipLabels.push(label);
     chipIcons.push(icon);
+    chipKinds.push(null);
+    chipGroupIds.push(null);
+    chipGroupColors.push(null);
   }
 }
 
@@ -621,9 +670,9 @@ function showQuery(): void {
   // jumps); only the *effective* query decides the pill state. A
   // whitespace-only query normalizes to "" and shows the placeholder as if
   // empty — searching for spaces alone is not a thing.
-  const effective = normalizeQuery(queryText);
-  const hasQuery = effective.length > 0;
-  mirror.textContent = hasQuery ? queryText : t(currentLanguage, "placeholder");
+  const hasQuery = normalizedQuery.length > 0;
+  const text = hasQuery ? queryText : t(currentLanguage, "placeholder");
+  if (mirror.textContent !== text) mirror.textContent = text;
   mirror.classList.toggle("dim", !hasQuery);
   queryWrap.classList.toggle("active", hasQuery);
   if (input.value !== queryText) input.value = queryText;
@@ -653,25 +702,28 @@ function showRunError(msg: string): void {
 function syncEmptyState(): void {
   // Emptiness is judged on the normalized query: whitespace-only input
   // counts as "no query" (shows everything / "no actions yet"), never as
-  // "no matches". `countMatches`/`filterActions` share the same
+  // "no matches". `matchActions`/`normalizeQuery` share the same
   // normalization, so the three can never disagree.
-  const hasQuery = normalizeQuery(queryText).length > 0;
+  const hasQuery = normalizedQuery.length > 0;
   const noResults = hasQuery && filtered.length === 0;
   const noActionsYet = !hasQuery && actions.length === 0;
-  emptyState.textContent = noResults
+  const emptyText = noResults
     ? t(currentLanguage, "noMatches")
     : noActionsYet
       ? t(currentLanguage, "noActions")
       : "";
+  if (emptyState.textContent !== emptyText) emptyState.textContent = emptyText;
   emptyState.classList.toggle("visible", overlay.phase === "visible" && (noResults || noActionsYet));
 
-  // "+N more": how many matches fall outside the visible ring. total counts
-  // every match uncapped; filtered holds at most MAX_VISIBLE, so the delta
-  // is the hidden remainder. Whisper-quiet and only while the overlay is up.
-  const total = countMatches(actions, queryText);
-  const hidden = total - filtered.length;
+  // "+N more": how many matches fall outside the visible ring. `matchTotal`
+  // counts every match uncapped; `filtered` holds at most MAX_VISIBLE, so the
+  // delta is the hidden remainder. Whisper-quiet and only while the overlay
+  // is up. Runs on every animation frame, so it reads cached values and only
+  // touches the DOM when the caption actually changes.
+  const hidden = matchTotal - filtered.length;
   const showMore = hidden > 0 && filtered.length > 0 && overlay.phase === "visible";
-  moreCount.textContent = showMore ? t(currentLanguage, "moreResults", { count: String(hidden) }) : "";
+  const moreText = showMore ? t(currentLanguage, "moreResults", { count: String(hidden) }) : "";
+  if (moreCount.textContent !== moreText) moreCount.textContent = moreText;
   moreCount.classList.toggle("visible", showMore);
 }
 
@@ -825,7 +877,9 @@ function localizeAll(): void {
 }
 
 function refilter(): void {
-  filtered = filterActions(actions, queryText);
+  const matches = matchActions(actions, queryText, actionNames);
+  filtered = matches.indices;
+  matchTotal = matches.total;
   selected = filtered.length > 0 ? 0 : -1;
   syncChips();
 }
@@ -860,12 +914,13 @@ function applyCircleSize(): void {
   settingsCircle.value = String(size);
   settingsCircleValue.textContent = `${size}%`;
   settingsCircle.setAttribute("aria-valuetext", `${size}%`);
+  invalidateLauncherRect();
 }
 
 /** The group of an action by config id, or undefined when unset/unknown. */
 function actionGroup(action: Action): Group | undefined {
   if (!action.group) return undefined;
-  return groups.find((g) => g.id === action.group);
+  return groupById.get(action.group);
 }
 
 /** Bake the ring's tile geometry into the DOM: box size, viewBox, the shared
@@ -904,30 +959,86 @@ function syncChips(): void {
     const el = chips[i];
     const idx = filtered[i];
     if (idx === undefined) {
-      el.style.opacity = "0";
+      if (el.style.opacity !== "0") el.style.opacity = "0";
       el.classList.remove("selected");
       el.setAttribute("aria-pressed", "false");
       el.tabIndex = -1;
       continue;
     }
     const action = actions[idx];
-    chipLabels[i].textContent = action.name;
-    chipIcons[i].innerHTML = KIND_ICONS[action.kind];
-    const group = actionGroup(action);
-    if (group) {
-      el.dataset.group = group.id;
-      el.style.setProperty("--group-color", group.color);
-    } else {
-      delete el.dataset.group;
-      el.style.removeProperty("--group-color");
+    if (chipLabels[i].textContent !== action.name) chipLabels[i].textContent = action.name;
+    if (chipKinds[i] !== action.kind) {
+      chipIcons[i].innerHTML = KIND_ICONS[action.kind];
+      chipKinds[i] = action.kind;
     }
-    el.style.opacity = "1";
+    const group = actionGroup(action);
+    const groupId = group?.id ?? null;
+    const groupColor = group?.color ?? null;
+    if (chipGroupIds[i] !== groupId) {
+      if (group) el.dataset.group = group.id;
+      else delete el.dataset.group;
+      chipGroupIds[i] = groupId;
+    }
+    if (chipGroupColors[i] !== groupColor) {
+      if (groupColor) el.style.setProperty("--group-color", groupColor);
+      else el.style.removeProperty("--group-color");
+      chipGroupColors[i] = groupColor;
+    }
+    if (el.style.opacity !== "1") el.style.opacity = "1";
     el.classList.toggle("selected", i === selected);
     el.setAttribute("aria-label", action.name);
     el.setAttribute("aria-pressed", String(i === selected));
     el.tabIndex = panelOpen() ? -1 : 0;
   }
+  syncChipHitAreas();
   applyChipTransforms();
+}
+
+/** Write a chip transform only when it actually changes. The pointer path
+ *  runs on every move; most moves leave a chip at rest, and touching the
+ *  CSSOM anyway would invalidate style for the whole launcher. */
+function setChipTransform(i: number, value: string): void {
+  if (chipTransforms[i] === value) return;
+  chipTransforms[i] = value;
+  chips[i].style.transform = value;
+}
+
+/** Cached pill centres for the visible count: the orbit trigonometry is
+ *  otherwise re-derived for every chip on every pointermove. */
+let pillCentersCount = -1;
+let pillCentersCache: ReadonlyArray<readonly [number, number]> = [];
+
+function pillCenters(count: number): ReadonlyArray<readonly [number, number]> {
+  if (pillCentersCount !== count) {
+    const centers: Array<readonly [number, number]> = new Array(count);
+    for (let i = 0; i < count; i++) centers[i] = chipCenter(i, count);
+    pillCentersCache = centers;
+    pillCentersCount = count;
+  }
+  return pillCentersCache;
+}
+
+/** Give exactly the visible chips a hit area while the overlay can be
+ *  interacted with. Runs from `syncChips` (count changes) and `render` (the
+ *  open/close threshold); identical values are skipped, so the per-frame
+ *  call is free. Without the count pass, a chip revealed while the overlay
+ *  is settled would keep the `none` it got when it was hidden. */
+function syncChipHitAreas(): void {
+  const enabled = overlay.phase === "visible" || overlay.displayProgress >= 0.05;
+  const count = filtered.length;
+  if (chipMode === "pills") {
+    for (let i = 0; i < MAX_VISIBLE; i++) {
+      const pe = enabled && i < count ? "auto" : "none";
+      if (chips[i].style.pointerEvents !== pe) chips[i].style.pointerEvents = pe;
+    }
+    return;
+  }
+  for (let i = 0; i < MAX_VISIBLE; i++) {
+    const body = chipPetals[i]?.body;
+    if (!body) continue;
+    const pe = enabled && i < count ? "auto" : "none";
+    if (body.style.pointerEvents !== pe) body.style.pointerEvents = pe;
+  }
 }
 
 /** Transforms for the settled-open state (hover + selection magnification).
@@ -937,16 +1048,17 @@ function syncChips(): void {
 function applyChipTransforms(): void {
   const count = filtered.length;
   if (chipMode === "pills") {
+    const centers = pillCenters(count);
     for (let i = 0; i < MAX_VISIBLE; i++) {
       if (i >= count) continue;
-      const [cx, cy] = chipCenter(i, count);
+      const [cx, cy] = centers[i];
       const hoverScale = magnifyEnabled
         ? dockScale(cx, cy, mouseX, mouseY, i === selected, PILL_DOCK_RADIUS)
         : 1;
       // The dock scale is capped so the pill never pokes out of the disc
       // circle (the 3/9 o'clock pills of a full ring are the ones that clamp).
       const scale = Math.min(hoverScale, MAX_FINAL_SCALE, chipMaxScale(cx, cy, MAX_FINAL_SCALE));
-      chips[i].style.transform = `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`;
+      setChipTransform(i, `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`);
     }
     return;
   }
@@ -956,7 +1068,7 @@ function applyChipTransforms(): void {
     const scale = magnifyEnabled
       ? petalHoverScale(layout.cx, layout.cy, mouseX, mouseY, i === selected)
       : 1;
-    chips[i].style.transform = chipTransform(layout, layout.rotation, scale);
+    setChipTransform(i, chipTransform(layout, layout.rotation, scale));
   }
 }
 
@@ -994,7 +1106,7 @@ function render(): void {
   for (let i = 0; i < MAX_VISIBLE; i++) {
     const el = chips[i];
     if (i >= count) {
-      el.style.opacity = "0";
+      if (el.style.opacity !== "0") el.style.opacity = "0";
       continue;
     }
     const chipT = closing
@@ -1005,9 +1117,12 @@ function render(): void {
       // The classic entrance: the pill plain-eases out of nothing, from its
       // own centre. No wind and no overshoot (those belong to the tiles).
       const animScale = closing ? 1 - easeOutCubic(chipT) : easeOutCubic(chipT);
-      const [cx, cy] = chipCenter(i, count);
+      const [cx, cy] = pillCenters(count)[i];
       const scale = Math.min(animScale, MAX_FINAL_SCALE);
-      el.style.transform = `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`;
+      setChipTransform(
+        i,
+        `translate(${cx - CHIP_W / 2}px, ${cy - CHIP_H / 2}px) scale(${scale})`,
+      );
       el.style.opacity = String(opacity);
       continue;
     }
@@ -1023,30 +1138,18 @@ function render(): void {
     const animScale = closing ? 1 - easeOutCubic(chipT) : easeOutBack(chipT, 1);
     const wind = (1 - easeOutCubic(chipT)) * 10;
     const scale = Math.min(animScale, PETAL_HOVER_PEAK);
-    el.style.transform = chipTransform(layout, layout.rotation - wind, scale);
+    setChipTransform(i, chipTransform(layout, layout.rotation - wind, scale));
     el.style.opacity = String(opacity);
   }
 
   syncEmptyState();
+  syncChipHitAreas();
 
-  const enabled = dp >= 0.05;
-  const pe = enabled ? "auto" : "none";
-  hub.style.pointerEvents = pe;
-  addBtn.style.pointerEvents = pe;
-  minimize.style.pointerEvents = pe;
-  if (chipMode === "pills") {
-    // A pill's hit area is its whole (unrotated) box; hidden pills (past the
-    // filtered count) never take pointers.
-    for (let i = 0; i < MAX_VISIBLE; i++) {
-      chips[i].style.pointerEvents = enabled && i < count ? "auto" : "none";
-    }
-  } else {
-    // The tiles' hit area is the painted path (the button itself is
-    // pointer-events: none), so only real tile pixels take clicks — and hidden
-    // tiles (past the filtered count) never take any.
-    for (let i = 0; i < MAX_VISIBLE; i++) {
-      chipPetals[i].body.style.pointerEvents = enabled && i < count ? "auto" : "none";
-    }
+  // Centre controls stay inert until the opening animation is visible enough
+  // to be aimed at; identical values are skipped so a frame is just compares.
+  const centrePe = dp >= 0.05 ? "auto" : "none";
+  for (const control of [hub, addBtn, minimize]) {
+    if (control.style.pointerEvents !== centrePe) control.style.pointerEvents = centrePe;
   }
 }
 
@@ -1112,9 +1215,10 @@ input.addEventListener("input", () => {
   const capped = capUtf8Bytes(input.value);
   if (capped !== input.value) input.value = capped;
   // Keep the raw text (no trim here: rewriting the value mid-typing moves
-  // the caret). `filterActions`/`syncEmptyState`/`showQuery` normalize for
-  // matching, so leading/trailing/duplicate spaces and accents just work.
+  // the caret). The normalized form is cached: matching, the empty state and
+  // the render loop all read it instead of re-normalizing on every frame.
   queryText = input.value;
+  normalizedQuery = normalizeQuery(queryText);
   showQuery();
   refilter();
 });
@@ -1645,8 +1749,9 @@ for (const handle of document.querySelectorAll<HTMLElement>(".resize-handle")) {
 function chipAtPointer(): number {
   const count = filtered.length;
   if (chipMode === "pills") {
+    const centers = pillCenters(count);
     for (let i = 0; i < count; i++) {
-      const [cx, cy] = chipCenter(i, count);
+      const [cx, cy] = centers[i];
       if (Math.abs(mouseX - cx) <= CHIP_W / 2 && Math.abs(mouseY - cy) <= CHIP_H / 2) {
         return i;
       }
@@ -1674,7 +1779,7 @@ function chipAtPointer(): number {
  * wrapper's own zoom.)
  */
 function toCanvasCoords(clientX: number, clientY: number): [number, number] {
-  const rect = launcher.getBoundingClientRect();
+  const rect = launcherRectNow();
   if (rect.width === 0 || rect.height === 0) return [-10000, -10000];
   const x = (clientX - rect.left) * (CANVAS_W / rect.width);
   const y = (clientY - rect.top) * (CANVAS_H / rect.height);
@@ -2048,25 +2153,35 @@ interface InstalledApp {
   value: string;
 }
 
-let appsCache: InstalledApp[] | null = null;
+/** The installed-app list plus its normalized names, computed once when the
+ *  list is fetched (the picker filters on every keystroke). */
+interface AppIndex {
+  apps: InstalledApp[];
+  names: string[];
+}
 
-async function getInstalledApps(): Promise<InstalledApp[]> {
+let appsCache: AppIndex | null = null;
+
+async function getInstalledApps(): Promise<AppIndex> {
   if (appsCache) return appsCache;
+  let apps: InstalledApp[];
   try {
-    appsCache = await invoke<InstalledApp[]>("list_apps");
+    apps = await invoke<InstalledApp[]>("list_apps");
   } catch {
-    appsCache = [];
+    apps = [];
   }
+  appsCache = { apps, names: apps.map((app) => normalizeName(app.name)) };
   return appsCache;
 }
 
-function filterApps(apps: InstalledApp[], query: string): InstalledApp[] {
+function filterApps(index: AppIndex, query: string): InstalledApp[] {
   // Same contract as the circle search: normalized, case-/accent-insensitive
   // substring on the name; blank queries list everything (capped at 200).
   const q = normalizeQuery(query);
   const out: InstalledApp[] = [];
-  for (const app of apps) {
-    if (q.length === 0 || normalizeName(app.name).includes(q)) out.push(app);
+  const { apps, names } = index;
+  for (let i = 0; i < apps.length; i++) {
+    if (q.length === 0 || names[i].includes(q)) out.push(apps[i]);
     if (out.length >= 200) break;
   }
   return out;
@@ -2121,43 +2236,36 @@ function closeAppPickers(except?: HTMLElement): void {
 
 let apPickerSeq = 0;
 
+/** Wire the app picker for one row. The picker DOM (search field + listbox)
+ *  is created on first use: the actions editor can hold a very large number
+ *  of rows, and building a hidden picker per row wasted DOM nodes and
+ *  listeners on every panel open. */
 function attachAppPicker(row: HTMLElement, value: HTMLInputElement, name: HTMLInputElement): void {
-  const picker = document.createElement("div");
-  picker.className = "app-picker";
-  picker.hidden = true;
+  const browse = row.querySelector<HTMLButtonElement>(".s-app-browse")!;
+  browse.setAttribute("aria-haspopup", "listbox");
+  browse.setAttribute("aria-expanded", "false");
 
-  const listId = `ap-list-${++apPickerSeq}`;
-  const search = document.createElement("input");
-  search.type = "text";
-  search.className = "ap-search";
-  search.setAttribute("role", "combobox");
-  search.setAttribute("aria-autocomplete", "list");
-  search.setAttribute("aria-controls", listId);
-  search.setAttribute("aria-expanded", "false");
-  search.placeholder = t(currentLanguage, "appSearchPlaceholder");
-
-  const list = document.createElement("div");
-  list.className = "ap-list";
-  list.id = listId;
-  list.setAttribute("role", "listbox");
-  list.setAttribute("aria-label", t(currentLanguage, "appSearchPlaceholder"));
-
+  let picker: HTMLElement | null = null;
+  let search: HTMLInputElement | null = null;
+  let list: HTMLElement | null = null;
   let activeIdx = -1;
   let options: HTMLElement[] = [];
 
   const syncActive = (idx: number, scroll: boolean): void => {
+    const field = search;
+    if (!field) return;
     for (let i = 0; i < options.length; i++) {
       const on = i === idx;
       options[i].classList.toggle("ap-active", on);
       options[i].setAttribute("aria-selected", String(on));
     }
     if (idx >= 0 && options[idx]) {
-      search.setAttribute("aria-activedescendant", options[idx].id);
+      field.setAttribute("aria-activedescendant", options[idx].id);
       if (scroll) options[idx].scrollIntoView?.({ block: "nearest" });
     } else {
-      search.removeAttribute("aria-activedescendant");
+      field.removeAttribute("aria-activedescendant");
     }
-    search.setAttribute("aria-expanded", String(!picker.hidden));
+    field.setAttribute("aria-expanded", String(!picker?.hidden));
   };
 
   const choose = (item: HTMLElement): void => {
@@ -2166,87 +2274,113 @@ function attachAppPicker(row: HTMLElement, value: HTMLInputElement, name: HTMLIn
       name.value = item.dataset.name ?? "";
       localizeSettingsRow(row);
     }
-    picker.hidden = true;
+    if (picker) picker.hidden = true;
     browse.setAttribute("aria-expanded", "false");
-    search.setAttribute("aria-expanded", "false");
+    search?.setAttribute("aria-expanded", "false");
     value.focus();
   };
 
-  const browse = row.querySelector<HTMLButtonElement>(".s-app-browse")!;
-  browse.setAttribute("aria-haspopup", "listbox");
-  browse.setAttribute("aria-expanded", "false");
+  const ensurePicker = (): { picker: HTMLElement; search: HTMLInputElement; list: HTMLElement } => {
+    if (picker && search && list) return { picker, search, list };
+
+    const box = document.createElement("div");
+    box.className = "app-picker";
+    box.hidden = true;
+
+    const listId = `ap-list-${++apPickerSeq}`;
+    const field = document.createElement("input");
+    field.type = "text";
+    field.className = "ap-search";
+    field.setAttribute("role", "combobox");
+    field.setAttribute("aria-autocomplete", "list");
+    field.setAttribute("aria-controls", listId);
+    field.setAttribute("aria-expanded", "false");
+    field.placeholder = t(currentLanguage, "appSearchPlaceholder");
+
+    const boxList = document.createElement("div");
+    boxList.className = "ap-list";
+    boxList.id = listId;
+    boxList.setAttribute("role", "listbox");
+    boxList.setAttribute("aria-label", t(currentLanguage, "appSearchPlaceholder"));
+
+    field.addEventListener("input", () => {
+      void getInstalledApps().then((index) =>
+        renderAppList(boxList, filterApps(index, field.value), (items) => {
+          options = items;
+          activeIdx = -1;
+          syncActive(-1, false);
+        }),
+      );
+    });
+
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        box.hidden = true;
+        browse.setAttribute("aria-expanded", "false");
+        field.setAttribute("aria-expanded", "false");
+        browse.focus();
+        return;
+      }
+      if (options.length === 0) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const item = options[activeIdx >= 0 ? activeIdx : 0];
+        if (item) choose(item);
+        return;
+      }
+      let next = -1;
+      if (e.key === "ArrowDown") next = activeIdx + 1 < options.length ? activeIdx + 1 : 0;
+      else if (e.key === "ArrowUp") next = activeIdx - 1 >= 0 ? activeIdx - 1 : options.length - 1;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = options.length - 1;
+      if (next >= 0) {
+        e.preventDefault();
+        activeIdx = next;
+        syncActive(activeIdx, true);
+      }
+    });
+
+    boxList.addEventListener("click", (e) => {
+      const item = (e.target as HTMLElement).closest<HTMLElement>(".ap-item");
+      if (!item) return;
+      choose(item);
+    });
+
+    box.append(field, boxList);
+    // The picker lives inside the foldable body so it animates with the card.
+    (row.querySelector<HTMLElement>(".s-body-grid") ?? row).appendChild(box);
+    picker = box;
+    search = field;
+    list = boxList;
+    return { picker: box, search: field, list: boxList };
+  };
+
   browse.addEventListener("click", () => {
-    if (!picker.hidden) {
-      picker.hidden = true;
+    const ui = ensurePicker();
+    if (!ui.picker.hidden) {
+      ui.picker.hidden = true;
       browse.setAttribute("aria-expanded", "false");
-      search.setAttribute("aria-expanded", "false");
+      ui.search.setAttribute("aria-expanded", "false");
       return;
     }
-    closeAppPickers(picker);
-    picker.hidden = false;
+    closeAppPickers(ui.picker);
+    ui.picker.hidden = false;
     browse.setAttribute("aria-expanded", "true");
-    search.setAttribute("aria-expanded", "true");
-    search.value = "";
-    search.setAttribute("aria-label", t(currentLanguage, "appSearchPlaceholder"));
-    renderAppList(list, []);
-    search.focus();
-    void getInstalledApps().then((apps) =>
-      renderAppList(list, filterApps(apps, ""), (items) => {
+    ui.search.setAttribute("aria-expanded", "true");
+    ui.search.value = "";
+    ui.search.setAttribute("aria-label", t(currentLanguage, "appSearchPlaceholder"));
+    renderAppList(ui.list, []);
+    ui.search.focus();
+    void getInstalledApps().then((index) =>
+      renderAppList(ui.list, filterApps(index, ""), (items) => {
         options = items;
         activeIdx = -1;
         syncActive(-1, false);
       }),
     );
   });
-
-  search.addEventListener("input", () => {
-    void getInstalledApps().then((apps) =>
-      renderAppList(list, filterApps(apps, search.value), (items) => {
-        options = items;
-        activeIdx = -1;
-        syncActive(-1, false);
-      }),
-    );
-  });
-
-  search.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      picker.hidden = true;
-      browse.setAttribute("aria-expanded", "false");
-      search.setAttribute("aria-expanded", "false");
-      browse.focus();
-      return;
-    }
-    if (options.length === 0) return;
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const item = options[activeIdx >= 0 ? activeIdx : 0];
-      if (item) choose(item);
-      return;
-    }
-    let next = -1;
-    if (e.key === "ArrowDown") next = activeIdx + 1 < options.length ? activeIdx + 1 : 0;
-    else if (e.key === "ArrowUp") next = activeIdx - 1 >= 0 ? activeIdx - 1 : options.length - 1;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = options.length - 1;
-    if (next >= 0) {
-      e.preventDefault();
-      activeIdx = next;
-      syncActive(activeIdx, true);
-    }
-  });
-
-  list.addEventListener("click", (e) => {
-    const item = (e.target as HTMLElement).closest<HTMLElement>(".ap-item");
-    if (!item) return;
-    choose(item);
-  });
-
-  picker.append(search, list);
-  // The picker lives inside the foldable body so it animates with the card.
-  (row.querySelector<HTMLElement>(".s-body-grid") ?? row).appendChild(picker);
 }
 
 // ----------------------------------------------------------- groups editor
@@ -3558,7 +3692,7 @@ function buildSettingsRow(a: Action): HTMLElement {
   for (const field of [name, value]) {
     field.addEventListener("input", () => {
       row.classList.remove("invalid");
-      if (field === name) localizeSettingsRow(row);
+      if (field === name) syncRowNameLabels(row);
     });
   }
 
@@ -3608,6 +3742,27 @@ function kindValuePlaceholder(kind: string): string {
             ? "valuePlaceholderFile"
             : "valuePlaceholderFolder",
   );
+}
+
+/** Refresh only the labels that depend on the action's name. Typing a name
+ *  used to re-run the whole localize pass (dozens of queries and lookups)
+ *  on every keystroke; everything else is language-dependent and stays. */
+function syncRowNameLabels(row: HTMLElement): void {
+  const L = currentLanguage;
+  const name = row.querySelector<HTMLInputElement>(".s-name");
+  if (!name) return;
+  const label = name.value.trim() || t(L, "namePlaceholder");
+  row.setAttribute("aria-label", label);
+  row.querySelector<HTMLElement>(".s-face")?.setAttribute("aria-label", label);
+  row
+    .querySelector<HTMLButtonElement>(".s-del")
+    ?.setAttribute("aria-label", t(L, "deleteAction", { name: name.value || t(L, "namePlaceholder") }));
+  row
+    .querySelector<HTMLButtonElement>(".s-move-up")
+    ?.setAttribute("aria-label", t(L, "moveActionUp", { name: label }));
+  row
+    .querySelector<HTMLButtonElement>(".s-move-down")
+    ?.setAttribute("aria-label", t(L, "moveActionDown", { name: label }));
 }
 
 /** Refresh the language-dependent bits of an existing row (no rebuild, so
@@ -3844,7 +3999,9 @@ interface ConfigPayload {
 
 function applyConfigPayload(cfg: ConfigPayload): void {
   actions = cfg.actions;
+  actionNames = normalizeActionNames(actions);
   groups = cfg.groups ?? [];
+  groupById = new Map(groups.map((group) => [group.id, group]));
   savedLanguage = (cfg.language ?? "system") as StoredLanguage;
   magnifyEnabled = cfg.magnify;
   iconsEnabled = cfg.showIcons;
@@ -3854,6 +4011,9 @@ function applyConfigPayload(cfg: ConfigPayload): void {
   themeDraft = null;
   circleDraft = null;
   syncIcons();
+  // Rebuild the match list before any chip renders: a reload can shrink the
+  // list, and the previous payload's indices would read past the new array.
+  refilter();
   syncChipsMode();
   applyCircleSize();
   applyLanguage();
@@ -3864,6 +4024,7 @@ async function init(): Promise<void> {
     listen("overlay-open", () => {
       overlay.open();
       queryText = "";
+      normalizedQuery = "";
       input.value = "";
       runError.classList.remove("visible");
       showQuery();
@@ -3896,13 +4057,11 @@ async function init(): Promise<void> {
     listen<ConfigPayload>("config-reloaded", (event: { payload: ConfigPayload }) => {
       applyConfigPayload(event.payload);
       if (actionsOpen) rebuildActionsRows();
-      else refilter();
     }),
   ]);
 
   const cfg = await invoke<ConfigPayload>("get_config");
   applyConfigPayload(cfg);
-  refilter();
 
   getVersion()
     .then((version) => {

@@ -10,9 +10,11 @@ import {
   isReadableOnDark,
   isSequenceStepKind,
   isValidSequenceAction,
+  matchActions,
   matchesQuery,
   MAX_SEQUENCE_STEPS,
   moveSelection,
+  normalizeActionNames,
   normalizeName,
   normalizeQuery,
   normalizeSequenceSteps,
@@ -83,6 +85,39 @@ describe("filterActions", () => {
       const total = countMatches(actions, q);
       expect(total).toBeGreaterThanOrEqual(filtered.length);
       if (total <= 8) expect(filtered).toHaveLength(total);
+    }
+  });
+});
+
+describe("matchActions", () => {
+  const many: Action[] = Array.from({ length: 12 }, (_, i) => ({
+    name: `item${i}`,
+    kind: "url" as const,
+    value: `https://example.com/${i}`,
+  }));
+
+  it("returns the capped indices and the uncapped total in one pass", () => {
+    expect(matchActions(many, "item")).toEqual({
+      indices: [0, 1, 2, 3, 4, 5, 6, 7],
+      total: 12,
+    });
+    expect(matchActions(actions, "g")).toEqual({ indices: [1], total: 1 });
+    expect(matchActions(actions, "zzz")).toEqual({ indices: [], total: 0 });
+  });
+
+  it("treats a blank query as match-all with the capped index list", () => {
+    expect(matchActions(actions, "   ")).toEqual({
+      indices: [0, 1, 2, 3],
+      total: 4,
+    });
+    expect(matchActions([], "")).toEqual({ indices: [], total: 0 });
+  });
+
+  it("accepts precomputed normalized names for the same results", () => {
+    const names = normalizeActionNames(actions);
+    expect(names).toEqual(["vercel", "github", "native sdk docs", "reload (use tray)"]);
+    for (const q of ["", "g", "  G  ", "o", "zzz", "native  sdk", "canción"]) {
+      expect(matchActions(actions, q, names)).toEqual(matchActions(actions, q));
     }
   });
 });

@@ -3,26 +3,30 @@
   "private": true,
   "version": "0.7.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.22.2"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench": "vitest bench --run --reporter=verbose",
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "2.11.1",
-    "@tauri-apps/plugin-autostart": "2.5.1",
-    "@tauri-apps/plugin-dialog": "2.7.2",
-    "@tauri-apps/plugin-process": "2.3.1",
-    "@tauri-apps/plugin-updater": "2.10.1"
+    "@tauri-apps/api": "2.12.5",
+    "@tauri-apps/plugin-autostart": "2.7.0",
+    "@tauri-apps/plugin-dialog": "2.8.4",
+    "@tauri-apps/plugin-process": "2.4.0",
+    "@tauri-apps/plugin-updater": "2.14.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.11.4",
-    "jsdom": "30.0.1",
+    "@tauri-apps/cli": "2.12.6",
+    "jsdom": "31.0.1",
     "typescript": "7.0.2",
-    "vite": "8.2.2",
-    "vitest": "4.1.11"
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
   },
   "allowScripts": {
     "fsevents@2.3.3": true

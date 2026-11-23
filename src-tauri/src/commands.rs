@@ -55,10 +55,14 @@ pub fn get_config(state: State<'_, AppState>) -> ConfigPayload {
     ConfigPayload::from(&*state.config.lock().unwrap())
 }
 
-/// Installed applications for the settings panel's app picker.
+/// Installed applications for the settings panel's app picker. The scan walks
+/// the filesystem, so it runs on the blocking pool instead of stalling the
+/// IPC/main thread while the picker opens.
 #[tauri::command]
-pub fn list_apps() -> Vec<apps::AppEntry> {
-    apps::list()
+pub async fn list_apps() -> Result<Vec<apps::AppEntry>, String> {
+    tauri::async_runtime::spawn_blocking(apps::list)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Run the action at `index` (detached) and close the overlay. The effect
@@ -110,10 +114,14 @@ pub fn on_overlay_closed(app: AppHandle) {
 #[tauri::command]
 pub fn reload_config(app: AppHandle) {
     let state = app.state::<AppState>();
-    let mut config = state.config.lock().unwrap();
-    *config = config::load_from(&state.config_path);
-    let payload = ConfigPayload::from(&*config);
-    drop(config);
+    // Parse before taking the lock: a slow disk read must not make every
+    // other config reader (the boot payload, execute) wait behind it.
+    let fresh = config::load_from(&state.config_path);
+    let payload = {
+        let mut config = state.config.lock().unwrap();
+        *config = fresh;
+        ConfigPayload::from(&*config)
+    };
     let _ = app.emit("config-reloaded", payload);
 }
 

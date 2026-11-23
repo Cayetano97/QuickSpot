@@ -162,31 +162,90 @@ export function matchesQuery(name: string, query: string): boolean {
   return normalizeName(name).includes(q);
 }
 
+/** Result of one matching pass: the first MAX_VISIBLE indices plus the
+ * uncapped total (the launcher shows the remainder as "N more"). */
+export interface ActionMatches {
+  indices: number[];
+  total: number;
+}
+
+/**
+ * Normalized names for every action, computed once per config payload. The
+ * launcher keeps them for the life of the list: filtering must never re-run
+ * `normalize("NFD")` over every name on each keystroke.
+ */
+export function normalizeActionNames(actions: readonly Action[]): string[] {
+  const names = new Array<string>(actions.length);
+  for (let i = 0; i < actions.length; i++) names[i] = normalizeName(actions[i].name);
+  return names;
+}
+
 /**
  * Substring match on `name` only (never `value`/`hint`/group: those would
  * leak paths into the ring and make results noisy), in config order (never
  * re-orders). The query is normalized (trimmed, whitespace-collapsed,
  * case- and accent-insensitive); blank queries match everything.
- * Returns the first MAX_VISIBLE matching indices.
+ *
+ * One pass returns both the first MAX_VISIBLE matching indices and the
+ * uncapped match count, so the launcher no longer scans the list twice per
+ * keystroke. `normalizedNames` is the optional output of
+ * `normalizeActionNames` (same length/order as `actions`).
  */
-export function filterActions(actions: readonly Action[], query: string): number[] {
+export function matchActions(
+  actions: readonly Action[],
+  query: string,
+  normalizedNames?: readonly string[],
+): ActionMatches {
+  const q = normalizeQuery(query);
+  const indices: number[] = [];
+  if (q.length === 0) {
+    const visible = Math.min(MAX_VISIBLE, actions.length);
+    for (let i = 0; i < visible; i++) indices.push(i);
+    return { indices, total: actions.length };
+  }
+  let total = 0;
+  for (let i = 0; i < actions.length; i++) {
+    const name = normalizedNames?.[i] ?? normalizeName(actions[i].name);
+    if (name.includes(q)) {
+      total++;
+      if (indices.length < MAX_VISIBLE) indices.push(i);
+    }
+  }
+  return { indices, total };
+}
+
+/** First MAX_VISIBLE matching indices (see `matchActions`). Stops scanning
+ * once the ring is full, so a broad query over a huge list stays cheap. */
+export function filterActions(
+  actions: readonly Action[],
+  query: string,
+  normalizedNames?: readonly string[],
+): number[] {
   const q = normalizeQuery(query);
   const out: number[] = [];
   for (let i = 0; i < actions.length && out.length < MAX_VISIBLE; i++) {
-    if (q.length === 0 || normalizeName(actions[i].name).includes(q)) out.push(i);
+    const name = normalizedNames?.[i] ?? normalizeName(actions[i].name);
+    if (q.length === 0 || name.includes(q)) out.push(i);
   }
   return out;
 }
 
-/** Count of every action matching the query (uncapped); filterActions caps
+/** Count of every action matching the query (uncapped); `filterActions` caps
  * its return at MAX_VISIBLE, and the launcher shows the delta as "N more".
- * Shares `normalizeQuery` with `filterActions`, so both always agree on
+ * Shares the normalization with `filterActions`, so both always agree on
  * what "matches" means (including blank-query-matches-all). */
-export function countMatches(actions: readonly Action[], query: string): number {
+export function countMatches(
+  actions: readonly Action[],
+  query: string,
+  normalizedNames?: readonly string[],
+): number {
   const q = normalizeQuery(query);
   if (q.length === 0) return actions.length;
   let n = 0;
-  for (const a of actions) if (normalizeName(a.name).includes(q)) n++;
+  for (let i = 0; i < actions.length; i++) {
+    const name = normalizedNames?.[i] ?? normalizeName(actions[i].name);
+    if (name.includes(q)) n++;
+  }
   return n;
 }
 

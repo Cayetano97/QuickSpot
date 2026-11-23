@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Tauri-2.11-24C8D8?logo=tauri&logoColor=white" alt="Tauri v2" />
+  <img src="https://img.shields.io/badge/Tauri-2.12-24C8D8?logo=tauri&logoColor=white" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/Rust-1.97-orange?logo=rust&logoColor=white" alt="Rust" />
   <img src="https://img.shields.io/badge/TypeScript-7.0-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-888888" alt="Platforms" />
@@ -61,7 +61,7 @@ Inside the overlay:
 
 ## Getting started
 
-Prerequisites: [Node.js](https://nodejs.org) 20.19+ and the
+Prerequisites: [Node.js](https://nodejs.org) 22.22+ and the
 [Rust](https://rustup.rs) stable toolchain with the platform Tauri
 dependencies (Xcode CLT on macOS; webkit2gtk-4.1 + gtk3 on Linux).
 
@@ -151,6 +151,8 @@ QuickSpot to reload.
   language has the same keys, placeholders and translator credits as
   English), and the full overlay UI (rendering, live filtering, keyboard,
   settings panel, app picker) in jsdom with the Tauri IPC mocked.
+  `npm run bench` runs the performance benchmarks (filter/count at 200 and
+  2000 actions, petal geometry).
 - **Backend** — `cargo test` (in `src-tauri/`): config parsing fallbacks,
   per-platform execution plans, app discovery, and the drag-clamp /
   monitor-centering math.

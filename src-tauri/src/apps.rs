@@ -69,7 +69,9 @@ mod platform {
             user.push("Applications");
             scan_dir(&user, 1, &mut out);
         }
-        out.sort_by_key(|a| a.name.to_lowercase());
+        // `sort_by_cached_key` computes each lowercase key once; `sort_by_key`
+        // allocates a fresh String per comparison (O(n log n) allocations).
+        out.sort_by_cached_key(|a| a.name.to_lowercase());
         out.dedup_by(|a, b| a.value == b.value);
         out
     }
@@ -128,7 +130,7 @@ mod platform {
         for dir in base_dirs() {
             scan_dir(&dir, 1, &mut out);
         }
-        out.sort_by_key(|a| a.name.to_lowercase());
+        out.sort_by_cached_key(|a| a.name.to_lowercase());
         out.dedup_by(|a, b| a.value == b.value);
         out
     }
@@ -168,18 +170,19 @@ mod platform {
             }
         }
         let name = name?;
-        let mut exec = exec?;
-        // Strip desktop field codes (%U, %f, %i, %c, %k …).
-        let mut i = 0;
-        while i < exec.len() {
-            if exec.as_bytes()[i] == b'%' && i + 1 < exec.len() {
-                exec.remove(i + 1);
-                exec.remove(i);
+        let exec = exec?;
+        // Strip desktop field codes (%U, %f, %i, %c, %k …) in one pass:
+        // `String::remove` twice per code was quadratic on long Exec lines.
+        let mut clean = String::with_capacity(exec.len());
+        let mut chars = exec.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '%' && chars.peek().is_some() {
+                chars.next();
             } else {
-                i += 1;
+                clean.push(c);
             }
         }
-        let exec = exec.trim().to_string();
+        let exec = clean.trim().to_string();
         if exec.is_empty() {
             return None;
         }
@@ -196,7 +199,7 @@ mod platform {
             user.push(".local/share/applications");
             scan_desktop_dir(&user, &mut out);
         }
-        out.sort_by_key(|a| a.name.to_lowercase());
+        out.sort_by_cached_key(|a| a.name.to_lowercase());
         out.dedup_by(|a, b| a.value == b.value);
         out
     }

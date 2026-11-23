@@ -433,6 +433,16 @@ describe("rendering", () => {
     await mount({ showIcons: false });
     expect(document.querySelector("#overlay")!.classList.contains("no-icons")).toBe(true);
   });
+
+  it("keeps chip icon nodes in place when the selection moves", async () => {
+    const icon = document.querySelector<HTMLElement>(".chip-icon")!;
+    const svg = icon.querySelector("svg")!;
+    svg.dataset.marker = "keep";
+    key(document.querySelector<HTMLInputElement>("#query")!, "Tab");
+    // Re-selecting must not re-parse the SVG markup: the same node survives.
+    expect(icon.querySelector("svg")).toBe(svg);
+    expect(icon.querySelector("svg")!.getAttribute("data-marker")).toBe("keep");
+  });
 });
 
 describe("filtering", () => {
@@ -463,6 +473,54 @@ describe("filtering", () => {
     typeQuery("zzz");
     typeQuery("e");
     expect(document.querySelector("#empty-state")!.classList.contains("visible")).toBe(false);
+  });
+
+  it("shows the uncapped match count as a 'more' caption", async () => {
+    const many: Action[] = Array.from({ length: 12 }, (_, i) => ({
+      name: i < 10 ? `item${i}` : `other${i}`,
+      kind: "url",
+      value: `https://example.com/${i}`,
+    }));
+    await mount({ actions: many });
+    await openOverlay();
+    const more = document.querySelector<HTMLElement>("#more-count")!;
+    expect(visibleChips()).toBe(8);
+    expect(more.textContent).toBe("+4 more");
+    expect(more.classList.contains("visible")).toBe(true);
+    typeQuery("item");
+    expect(more.textContent).toBe("+2 more");
+    typeQuery("other");
+    expect(more.textContent).toBe("");
+    expect(more.classList.contains("visible")).toBe(false);
+  });
+
+  it("gives exactly the visible chips a hit area after the list changes", async () => {
+    await openOverlay();
+    const bodies = [...document.querySelectorAll<SVGPathElement>(".petal-body")];
+    expect(bodies.slice(0, 4).every((b) => b.style.pointerEvents === "auto")).toBe(true);
+    expect(bodies.slice(4).every((b) => b.style.pointerEvents === "none")).toBe(true);
+    typeQuery("g");
+    expect(bodies[0].style.pointerEvents).toBe("auto");
+    expect(bodies[1].style.pointerEvents).toBe("none");
+  });
+
+  it("a config reload that shrinks the list never reads stale match indices", async () => {
+    typeQuery("github");
+    // The old payload's matches point past the new list; switching the layout
+    // at the same time used to re-render chips before re-filtering.
+    eventHandlers["config-reloaded"]?.({
+      payload: {
+        actions: [{ name: "New", kind: "url", value: "https://new.dev" }],
+        language: null,
+        magnify: true,
+        showIcons: true,
+        chipLayout: "pills",
+      },
+    });
+    expect(visibleChips()).toBe(0);
+    typeQuery("");
+    expect(chipLabels()[0]).toBe("New");
+    expect(document.querySelector<HTMLElement>("#overlay")!.dataset.chips).toBe("pills");
   });
 
   it("greets a fresh config with the no-actions message", async () => {
@@ -619,6 +677,30 @@ describe("overlay lifecycle", () => {
     expect(visibleChips()).toBe(1);
     expect(document.documentElement.lang).toBe("es");
     expect(document.querySelector("#overlay")!.classList.contains("no-icons")).toBe(true);
+  });
+});
+
+describe("pointer mapping", () => {
+  it("measures the launcher once and re-measures after the circle size changes", async () => {
+    const launcher = document.querySelector<HTMLElement>("#launcher")!;
+    const rect = { left: 80, top: 80, width: 520, height: 580 } as DOMRect;
+    const measure = vi.spyOn(launcher, "getBoundingClientRect").mockReturnValue(rect);
+    await openOverlay();
+    document.querySelector<HTMLButtonElement>("#hub")!.click();
+    const overlay = document.querySelector<HTMLElement>("#overlay")!;
+    const move = (x: number): void => {
+      overlay.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, clientX: x, clientY: 100 }),
+      );
+    };
+    move(100);
+    move(110);
+    expect(measure).toHaveBeenCalledTimes(1);
+    const slider = document.querySelector<HTMLInputElement>("#settings-circle-size")!;
+    slider.value = "110";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    move(120);
+    expect(measure).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1558,6 +1640,18 @@ describe("actions panel", () => {
 });
 
 describe("app picker", () => {
+  it("creates the picker DOM only when the browse button is used", async () => {
+    await mount();
+    await openOverlay();
+    openActions();
+    expect(document.querySelectorAll(".settings-row").length).toBeGreaterThan(0);
+    expect(document.querySelector(".app-picker")).toBeNull();
+    document.querySelector<HTMLButtonElement>(".s-app-browse")!.click();
+    await flush();
+    expect(document.querySelector(".app-picker")).not.toBeNull();
+    expect(document.querySelector(".ap-search")).not.toBeNull();
+  });
+
   it("lists installed apps, filters them and fills the value field", async () => {
     await mount({
       actions: [{ name: "Code", kind: "app", value: "/Applications/Visual Studio Code.app" }],

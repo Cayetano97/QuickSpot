@@ -3,7 +3,7 @@
 //! drag-clamp watchdog, and the OS-minimize reconcile.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::webview::WebviewWindowBuilder;
@@ -13,12 +13,16 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWi
 pub const WINDOW_LABEL: &str = "main";
 
 const RECONCILE_INTERVAL: Duration = Duration::from_millis(100);
+/// While hidden there is nothing to reconcile: the thread parks on the wake
+/// condvar until a phase change notifies it. The timeout only guards against
+/// a missed notification, so it can be long.
+const IDLE_WAIT: Duration = Duration::from_secs(3600);
 const CLAMP_INTERVAL: Duration = Duration::from_millis(33);
 const CLAMP_STABLE_TIMEOUT: Duration = Duration::from_millis(400);
 
 /// Rust-side phase. The visual animation lives in the webview; Rust only
 /// tracks whether the OS window should be shown, hidden, or closing.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Phase {
     Hidden,
     Shown,
@@ -33,6 +37,12 @@ pub struct Overlay {
     /// An open was requested while the webview was still loading; the ready
     /// handler performs the show once it fires.
     pending_open: AtomicBool,
+    /// Bumped on every phase change. The reconcile thread records it before
+    /// reading the phase and sleeps on the condvar: a change that slips in
+    /// between makes the generation differ, so the wait returns immediately
+    /// instead of missing a wakeup.
+    generation: Mutex<u64>,
+    wake: Condvar,
 }
 
 impl Overlay {
@@ -41,6 +51,8 @@ impl Overlay {
             phase: Mutex::new(Phase::Hidden),
             ready: AtomicBool::new(false),
             pending_open: AtomicBool::new(false),
+            generation: Mutex::new(0),
+            wake: Condvar::new(),
         }
     }
 
@@ -49,7 +61,13 @@ impl Overlay {
     }
 
     fn set(&self, phase: Phase) {
-        *self.phase.lock().unwrap() = phase;
+        let mut guard = self.phase.lock().unwrap();
+        if *guard == phase {
+            return;
+        }
+        *guard = phase;
+        drop(guard);
+        self.notify();
     }
 
     /// Transition only when the phase matches `expected`.
@@ -57,10 +75,32 @@ impl Overlay {
         let mut guard = self.phase.lock().unwrap();
         if *guard == expected {
             *guard = next;
+            drop(guard);
+            self.notify();
             true
         } else {
             false
         }
+    }
+
+    fn notify(&self) {
+        let mut generation = self.generation.lock().unwrap();
+        *generation = generation.wrapping_add(1);
+        self.wake.notify_all();
+    }
+
+    fn generation(&self) -> u64 {
+        *self.generation.lock().unwrap()
+    }
+
+    /// Sleep until the generation moves past `seen` or `timeout` elapses.
+    /// Spurious condvar wakeups are harmless: the caller re-reads the phase.
+    fn wait_for_change(&self, seen: u64, timeout: Duration) {
+        let guard = self.generation.lock().unwrap();
+        if *guard != seen {
+            return;
+        }
+        let _ = self.wake.wait_timeout(guard, timeout);
     }
 
     /// Record that the webview finished its boot sequence.
@@ -251,29 +291,32 @@ fn center_in_area(
     (x, y)
 }
 
-/// Background thread: while the overlay is shown, watch for an OS-level
-/// minimize (Win+Down, taskbar, Cmd+M) and reconcile the model to hidden
-/// so the next hotkey press opens instead of closing again.
+/// Background thread: while the overlay is visible, watch for an OS-level
+/// minimize (Win+Down, taskbar, Cmd+M) and reconcile the model to hidden so
+/// the next hotkey press opens instead of closing again. While hidden the
+/// thread parks on a condvar instead of polling: a tray app can sit hidden
+/// for hours, and waking ten times a second just to read "hidden" burns
+/// battery for nothing.
 pub fn spawn_reconcile(app: AppHandle) {
     std::thread::spawn(move || loop {
-        std::thread::sleep(RECONCILE_INTERVAL);
-        let reconciled = {
-            let ov = app.state::<Overlay>();
-            if ov.get() != Phase::Shown {
-                continue;
-            }
+        let ov = app.state::<Overlay>();
+        // Record the wake generation *before* reading the phase: a phase
+        // change in between bumps it and the wait below returns immediately.
+        let seen = ov.generation();
+        if ov.get() == Phase::Shown {
             let minimized = window(&app)
                 .is_some_and(|w| w.is_minimized().unwrap_or(false));
             if minimized {
                 ov.set(Phase::Hidden);
+                emit(&app, "overlay-close");
+                if let Some(win) = window(&app) {
+                    let _ = win.set_ignore_cursor_events(true);
+                }
+                continue;
             }
-            minimized
-        };
-        if reconciled {
-            emit(&app, "overlay-close");
-            if let Some(win) = window(&app) {
-                let _ = win.set_ignore_cursor_events(true);
-            }
+            ov.wait_for_change(seen, RECONCILE_INTERVAL);
+        } else {
+            ov.wait_for_change(seen, IDLE_WAIT);
         }
     });
 }
@@ -282,8 +325,14 @@ pub fn spawn_reconcile(app: AppHandle) {
 /// fully inside the union of all monitors (the virtual screen). The
 /// thread exits when the drag ends, or when the window stops moving for
 /// CLAMP_STABLE_TIMEOUT (covers pointerups the webview never sees).
+/// Monitor geometry and the window size are read once per drag: querying the
+/// OS for both every 33 ms is wasted work while the window moves.
 pub fn spawn_drag_clamp(app: AppHandle, dragging: std::sync::Arc<std::sync::atomic::AtomicBool>) {
     std::thread::spawn(move || {
+        let bounds = virtual_screen_bounds(&app);
+        let size = window(&app)
+            .and_then(|win| win.outer_size().ok())
+            .map(|size| (size.width as i32, size.height as i32));
         let mut last_pos: Option<PhysicalPosition<i32>> = None;
         let mut stable_since: Option<Instant> = None;
         while dragging.load(std::sync::atomic::Ordering::SeqCst) {
@@ -291,11 +340,15 @@ pub fn spawn_drag_clamp(app: AppHandle, dragging: std::sync::Arc<std::sync::atom
                 break;
             };
             let pos = win.outer_position().ok();
-            if let Some(pos) = pos {
-                if let Some(clamped) = clamp_to_virtual_screen(&app, &win, pos) {
-                    if clamped != pos {
-                        let _ = win.set_position(clamped);
-                    }
+            if let (Some(pos), Some(bounds), Some(size)) = (pos, bounds, size) {
+                let (cx, cy) = clamp_pos(
+                    (bounds.min_x, bounds.min_y),
+                    (bounds.max_x, bounds.max_y),
+                    (pos.x, pos.y),
+                    size,
+                );
+                if cx != pos.x || cy != pos.y {
+                    let _ = win.set_position(PhysicalPosition::new(cx, cy));
                 }
             }
             if pos == last_pos {
@@ -313,39 +366,33 @@ pub fn spawn_drag_clamp(app: AppHandle, dragging: std::sync::Arc<std::sync::atom
     });
 }
 
-/// Clamp the window's top-left so the whole overlay stays inside the
-/// virtual screen; returns None when no clamp is needed.
-fn clamp_to_virtual_screen(
-    app: &AppHandle,
-    win: &WebviewWindow,
-    pos: PhysicalPosition<i32>,
-) -> Option<PhysicalPosition<i32>> {
+/// Bounding rectangle of every monitor (the virtual screen).
+#[derive(Clone, Copy)]
+struct ScreenBounds {
+    min_x: i32,
+    min_y: i32,
+    max_x: i32,
+    max_y: i32,
+}
+
+fn virtual_screen_bounds(app: &AppHandle) -> Option<ScreenBounds> {
     let monitors = app.available_monitors().ok()?;
-    if monitors.is_empty() {
-        return None;
+    let first = monitors.first()?;
+    let mut bounds = ScreenBounds {
+        min_x: first.position().x,
+        min_y: first.position().y,
+        max_x: first.position().x + first.size().width as i32,
+        max_y: first.position().y + first.size().height as i32,
+    };
+    for monitor in &monitors[1..] {
+        let position = monitor.position();
+        let size = monitor.size();
+        bounds.min_x = bounds.min_x.min(position.x);
+        bounds.min_y = bounds.min_y.min(position.y);
+        bounds.max_x = bounds.max_x.max(position.x + size.width as i32);
+        bounds.max_y = bounds.max_y.max(position.y + size.height as i32);
     }
-    let min_x = monitors.iter().map(|m| m.position().x).min()?;
-    let min_y = monitors.iter().map(|m| m.position().y).min()?;
-    let max_x = monitors
-        .iter()
-        .map(|m| m.position().x + m.size().width as i32)
-        .max()?;
-    let max_y = monitors
-        .iter()
-        .map(|m| m.position().y + m.size().height as i32)
-        .max()?;
-    let size = win.outer_size().ok()?;
-    let (cx, cy) = clamp_pos(
-        (min_x, min_y),
-        (max_x, max_y),
-        (pos.x, pos.y),
-        (size.width as i32, size.height as i32),
-    );
-    if cx == pos.x && cy == pos.y {
-        None
-    } else {
-        Some(PhysicalPosition::new(cx, cy))
-    }
+    Some(bounds)
 }
 
 /// Keep a `size` window whose top-left is at `pos` inside the union rect
@@ -409,5 +456,26 @@ mod tests {
             center_in_area(1920.0, 0.0, 1280.0, 1024.0, 520.0, 580.0),
             (2300.0, 222.0)
         );
+    }
+
+    #[test]
+    fn a_phase_change_wakes_a_waiter_without_a_lost_wakeup() {
+        let ov = Overlay::new();
+        let seen = ov.generation();
+        ov.set(Phase::Shown);
+        let start = Instant::now();
+        // The generation moved before the wait, so it returns immediately
+        // instead of sleeping for the (long) timeout.
+        ov.wait_for_change(seen, Duration::from_secs(30));
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert_eq!(ov.get(), Phase::Shown);
+    }
+
+    #[test]
+    fn setting_the_same_phase_does_not_bump_the_generation() {
+        let ov = Overlay::new();
+        let seen = ov.generation();
+        ov.set(Phase::Hidden);
+        assert_eq!(ov.generation(), seen);
     }
 }
