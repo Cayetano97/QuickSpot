@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { decideEntryArgs, stripYes } from "./index.js";
+import { readFileSync } from "node:fs";
+import { decideEntryArgs, parseClients, stripYes, SERVER_VERSION } from "./index.js";
+
+describe("release metadata", () => {
+  it("keeps the handshake version in sync with package.json", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    expect(SERVER_VERSION).toBe(pkg.version);
+  });
+});
 
 describe("decideEntryArgs (opt-in gate)", () => {
   it("explicit actions always pass through", () => {
@@ -29,5 +37,13 @@ describe("decideEntryArgs (opt-in gate)", () => {
   it("stripYes removes consent flags", () => {
     expect(stripYes(["--yes", "--clients=cursor"])).toEqual(["--clients=cursor"]);
     expect(stripYes(["-y"])).toEqual([]);
+  });
+});
+
+describe("parseClients", () => {
+  it("accepts known clients and rejects typos with a clear message", () => {
+    expect(parseClients("cursor,opencode")).toEqual(["cursor", "opencode"]);
+    expect(parseClients(undefined)).toBeUndefined();
+    expect(() => parseClients("cursor,bogus")).toThrow(/unknown client/);
   });
 });

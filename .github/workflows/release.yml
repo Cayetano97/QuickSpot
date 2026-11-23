@@ -26,8 +26,8 @@ jobs:
         run: npm ci
         working-directory: mcp-quickspot
 
-      - name: Typecheck + test + build MCP bundle
-        run: npm run typecheck && npm test && npm run build
+      - name: Typecheck + test + build + e2e + renamed-asset smoke
+        run: npm run check
         working-directory: mcp-quickspot
 
       - name: Pack .mcpb for Claude Desktop

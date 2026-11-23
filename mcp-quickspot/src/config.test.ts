@@ -6,6 +6,7 @@ import {
   loadFrom,
   normalizeCircleSize,
   parseConfig,
+  resolveConfigPath,
   sanitize,
   sanitizeGroups,
   saveTo,
@@ -13,8 +14,18 @@ import {
   validChipLayout,
   validLanguage,
   validTheme,
+  validateConfigText,
 } from "./config.js";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -112,6 +123,12 @@ describe("parseConfig (mirror of Rust parse_config)", () => {
     expect(normalizeCircleSize(0)).toBe(85);
     expect(normalizeCircleSize(Number.MAX_SAFE_INTEGER)).toBe(125);
   });
+
+  it("rejects values Rust's as_u64 would reject (1e30, > 2^64)", () => {
+    expect(parseConfig(`{"circleSize":1e30,"actions":[]}`).circleSize).toBeNull();
+    expect(parseConfig(`{"circleSize":18446744073709551616,"actions":[]}`).circleSize).toBeNull();
+    expect(parseConfig(`{"circleSize":${Number.MAX_SAFE_INTEGER},"actions":[]}`).circleSize).toBe(125);
+  });
 });
 
 describe("loadFrom", () => {
@@ -120,6 +137,72 @@ describe("loadFrom", () => {
     const p = tmpFile();
     writeFileSync(p, "{bad");
     expect(loadFrom(p).actions).toEqual(defaults());
+  });
+});
+
+describe("validateConfigText", () => {
+  it("lists exactly which raw entries the backend would skip", () => {
+    const v = validateConfigText(`{
+      "actions": [
+        {"name":"A","kind":"url","value":"https://a.dev"},
+        {"name":"","kind":"url","value":"https://b.dev"},
+        42,
+        {"name":"S","kind":"sequence","steps":[]},
+        {"name":"N","kind":"ftp","value":"x"}
+      ],
+      "groups": [
+        {"id":"","name":"G","color":"#5e9eff"},
+        {"id":"ok","name":"Ok","color":"red"},
+        {"id":"good","name":"Good","color":"#5e9eff"}
+      ]
+    }`);
+    expect(v.config.actions.map((a) => a.name)).toEqual(["A"]);
+    expect(v.config.groups.map((g) => g.id)).toEqual(["good"]);
+    expect(v.skippedActions).toEqual([
+      { index: 1, reason: "missing or blank name" },
+      { index: 2, reason: "not an object" },
+      { index: 3, reason: "sequence has no valid steps" },
+      { index: 4, reason: "missing or unknown kind" },
+    ]);
+    expect(v.skippedGroups).toEqual([
+      { index: 0, reason: "missing or blank id" },
+      { index: 1, reason: "invalid color (expected #rrggbb)" },
+    ]);
+  });
+});
+
+describe("legacy config migration", () => {
+  it.skipIf(process.platform === "win32")(
+    "copies the cwd legacy file to the per-user path instead of editing it in place",
+    () => {
+    const home = mkdtempSync(join(tmpdir(), "qsmcp-home-"));
+    const cwd = mkdtempSync(join(tmpdir(), "qsmcp-cwd-"));
+    const oldHome = process.env.HOME;
+    const oldConfig = process.env.QUICKSPOT_CONFIG;
+    const oldXdg = process.env.XDG_CONFIG_HOME;
+    try {
+      process.env.HOME = home;
+      delete process.env.QUICKSPOT_CONFIG;
+      delete process.env.XDG_CONFIG_HOME;
+      mkdirSync(join(home, ".config"), { recursive: true });
+      writeFileSync(
+        join(cwd, "quickspot.config.json"),
+        '{"actions":[{"name":"Legacy","kind":"url","value":"https://legacy.dev"}]}',
+      );
+      const resolved = resolveConfigPath(cwd);
+      expect(resolved).not.toBe(join(cwd, "quickspot.config.json"));
+      expect(existsSync(resolved)).toBe(true);
+      expect(readFileSync(resolved, "utf8")).toContain("Legacy");
+    } finally {
+      if (oldHome === undefined) delete process.env.HOME;
+      else process.env.HOME = oldHome;
+      if (oldConfig === undefined) delete process.env.QUICKSPOT_CONFIG;
+      else process.env.QUICKSPOT_CONFIG = oldConfig;
+      if (oldXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = oldXdg;
+      rmSync(home, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
 
@@ -160,12 +243,16 @@ describe("sanitize (mirror of Rust sanitize)", () => {
     expect(out[0].steps).toHaveLength(5);
   });
 
-  it("drops sequences without runnable steps; keeps browser only on url", () => {
+  it("drops sequences without runnable steps and preserves browser/hint like Rust", () => {
     expect(sanitize([{ name: "B", kind: "sequence", value: "", steps: [{ kind: "url", value: "  " }] }])).toHaveLength(0);
-    const out = sanitize([{ name: "U", kind: "url", value: "https://u.dev", browser: "  /bin/ff  " }]);
+    const out = sanitize([
+      { name: "U", kind: "url", value: "https://u.dev", browser: "  /bin/ff  ", hint: "" },
+    ]);
     expect(out[0].browser).toBe("  /bin/ff  ");
+    expect(out[0].hint).toBe("");
+    // Rust `sanitize` keeps Some(browser) for every non-sequence kind.
     const cmd = sanitize([{ name: "C", kind: "command", value: "echo", browser: "/bin/x" }]);
-    expect(cmd[0].browser).toBeUndefined();
+    expect(cmd[0].browser).toBe("/bin/x");
   });
 });
 
@@ -234,6 +321,35 @@ describe("serializeConfig + saveTo round-trip", () => {
     expect(loadFrom(p).language).toBe("en");
     expect(readFileSync(p + ".bak", "utf8")).toContain("https://a.dev");
   });
+});
+
+describe("saveTo symlinks", () => {
+  it.skipIf(process.platform === "win32")(
+    "writes through a symlinked config instead of replacing the link",
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "qsmcp-link-"));
+      try {
+        const target = join(dir, "target.json");
+        const link = join(dir, "quickspot.config.json");
+        writeFileSync(target, '{"actions":[]}');
+        symlinkSync(target, link);
+        saveTo(link, {
+          actions: [{ name: "ViaLink", kind: "url", value: "https://link.dev" }],
+          groups: [],
+          language: null,
+          magnify: true,
+          showIcons: true,
+          chipLayout: null,
+          theme: null,
+          circleSize: null,
+        });
+        expect(lstatSync(link).isSymbolicLink()).toBe(true);
+        expect(readFileSync(target, "utf8")).toContain("ViaLink");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("findActionIndex", () => {

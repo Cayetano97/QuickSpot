@@ -3,7 +3,16 @@
  * `sanitize_groups`, `save_to`, `load_from`) so the MCP server can never
  * write a file the Rust backend would reject.
  */
-import { existsSync, copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir, platform } from "node:os";
 import {
@@ -49,16 +58,28 @@ export function legacyConfigPath(cwd = process.cwd()): string {
 }
 
 /** Resolve the file the MCP server must read/write.
- * Order: `$QUICKSPOT_CONFIG` > per-user config dir > legacy cwd file
- * (only when the per-user file does not exist yet, same as the Rust
- * first-run migration check). */
+ * Order: `$QUICKSPOT_CONFIG` > per-user config dir.
+ *
+ * The legacy working-directory file is only an input to the app's first-run
+ * migration. We copy it to the per-user path (best effort, exactly like
+ * `lib.rs`) and then always read/write the per-user path: the running app
+ * only reloads its per-user path, so editing the legacy file in place would
+ * stay invisible until the next app restart. */
 export function resolveConfigPath(cwd = process.cwd()): string {
   const env = envConfigPath();
   if (env) return env;
   const primary = join(appConfigDir(), CONFIG_FILE_NAME);
   if (existsSync(primary)) return primary;
   const legacy = legacyConfigPath(cwd);
-  if (existsSync(legacy)) return legacy;
+  if (existsSync(legacy) && legacy !== primary) {
+    try {
+      mkdirSync(dirname(primary), { recursive: true });
+      copyFileSync(legacy, primary);
+    } catch {
+      // Best effort, exactly like lib.rs: a failed copy leaves the primary
+      // path missing and the app falls back to the defaults too.
+    }
+  }
   return primary;
 }
 
@@ -169,11 +190,11 @@ export function parseConfig(text: string): Config {
   try {
     root = JSON.parse(text);
   } catch {
-    throw new Error("parse");
+    throw new Error("malformed JSON");
   }
-  if (typeof root !== "object" || root === null) throw new Error("malformed");
+  if (typeof root !== "object" || root === null) throw new Error("malformed JSON");
   const r = root as Record<string, unknown>;
-  if (!Array.isArray(r.actions)) throw new Error("malformed");
+  if (!Array.isArray(r.actions)) throw new Error("missing actions array");
 
   const actions: Action[] = [];
   for (const item of r.actions as unknown[]) {
@@ -233,9 +254,14 @@ export function parseConfig(text: string): Config {
   // the 5% slider grid; anything malformed (string, float, bool, negative)
   // or equal to the default collapses to `null` (mirrors Rust `as_u64` +
   // `filter`).
+  // serde's `as_u64` only accepts JSON integers that fit u64. JS has a single
+  // f64 number type, so `85.0` is indistinguishable from `85` after
+  // JSON.parse (a known, documented edge) and u64 values above 2^53 lose
+  // precision; rejecting non-safe integers fixes the practical divergences
+  // (1e30, > 2^64) while the clamp keeps any in-range value harmless.
   const rawCircle = r.circleSize;
   const normalized =
-    typeof rawCircle === "number" && Number.isInteger(rawCircle) && rawCircle >= 0
+    typeof rawCircle === "number" && Number.isSafeInteger(rawCircle) && rawCircle >= 0
       ? normalizeCircleSize(rawCircle)
       : null;
   const circleSize = normalized !== null && normalized !== CIRCLE_SIZE_DEFAULT ? normalized : null;
@@ -252,9 +278,94 @@ export function loadFrom(path: string): Config {
   }
 }
 
-export function loadConfig(configPath = resolveConfigPath()): { config: Config; path: string; existed: boolean } {
+export interface LoadedConfig {
+  config: Config;
+  path: string;
+  existed: boolean;
+  /** False only when an existing file could not be parsed. A missing file is
+   * valid: the app falls back to the built-in defaults. */
+  valid: boolean;
+  error: string | null;
+}
+
+export function loadConfig(configPath = resolveConfigPath()): LoadedConfig {
   const existed = existsSync(configPath);
-  return { config: loadFrom(configPath), path: configPath, existed };
+  if (!existed) {
+    return { config: withDefaults(), path: configPath, existed: false, valid: true, error: null };
+  }
+  try {
+    return {
+      config: parseConfig(readFileSync(configPath, "utf8")),
+      path: configPath,
+      existed: true,
+      valid: true,
+      error: null,
+    };
+  } catch (e) {
+    return {
+      config: withDefaults(),
+      path: configPath,
+      existed: true,
+      valid: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+export interface SkippedItem {
+  index: number;
+  reason: string;
+}
+
+export interface ConfigValidation {
+  config: Config;
+  skippedActions: SkippedItem[];
+  skippedGroups: SkippedItem[];
+}
+
+/** Why `parseConfig` would skip one raw action (null = it is kept). Mirrors
+ * the per-item rules of Rust `parse_config`, not `sanitize`: an empty value
+ * is kept at parse time and dropped later by `sanitize`. */
+function actionSkipReason(item: unknown): string | null {
+  if (typeof item !== "object" || item === null) return "not an object";
+  const obj = item as Record<string, unknown>;
+  if (typeof obj.name !== "string" || !obj.name.trim()) return "missing or blank name";
+  const kind = parseKind(obj.kind);
+  if (!kind) return "missing or unknown kind";
+  if (kind === "sequence") {
+    return parseSequenceSteps(obj).length === 0 ? "sequence has no valid steps" : null;
+  }
+  return typeof obj.value === "string" ? null : "missing value";
+}
+
+/** Why `parseConfig` would skip one raw group (null = it is kept). */
+function groupSkipReason(item: unknown): string | null {
+  if (typeof item !== "object" || item === null) return "not an object";
+  const obj = item as Record<string, unknown>;
+  if (typeof obj.id !== "string" || !obj.id.trim()) return "missing or blank id";
+  if (typeof obj.name !== "string" || !obj.name.trim()) return "missing or blank name";
+  if (typeof obj.color !== "string" || !validColor(obj.color.trim())) return "invalid color (expected #rrggbb)";
+  return null;
+}
+
+/** Parse + list exactly which raw entries the backend would ignore. Throws
+ * with the same messages as `parseConfig` when the file itself is invalid. */
+export function validateConfigText(text: string): ConfigValidation {
+  const config = parseConfig(text);
+  const root = JSON.parse(text) as Record<string, unknown>;
+  const rawActions = Array.isArray(root.actions) ? root.actions : [];
+  const rawGroups = Array.isArray(root.groups) ? root.groups : [];
+  const skippedActions: SkippedItem[] = [];
+  rawActions.forEach((item, index) => {
+    const reason = actionSkipReason(item);
+    if (reason) skippedActions.push({ index, reason });
+  });
+  const skippedGroups: SkippedItem[] = [];
+  rawGroups.forEach((item, index) => {
+    const reason = groupSkipReason(item);
+    if (reason) skippedGroups.push({ index, reason });
+  });
+  return { config, skippedActions, skippedGroups };
 }
 
 /** Lenient validation mirroring Rust `sanitize`. */
@@ -284,7 +395,7 @@ export function sanitize(actions: Action[]): Action[] {
       if (steps.length === 0) continue;
       steps.length = Math.min(steps.length, MAX_SEQUENCE_STEPS);
       const a: Action = { name, kind, value: "" };
-      if (input.hint) a.hint = input.hint;
+      if (typeof input.hint === "string") a.hint = input.hint;
       if (group) a.group = group;
       a.steps = steps;
       out.push(a);
@@ -293,10 +404,12 @@ export function sanitize(actions: Action[]): Action[] {
     const value = (input.value ?? "").trim();
     if (!value) continue;
     const a: Action = { name, kind, value };
-    if (kind === "url" && typeof input.browser === "string" && input.browser.trim()) {
-      a.browser = input.browser;
-    }
-    if (input.hint) a.hint = input.hint;
+    // Rust `sanitize` keeps every `Some(browser)`/`Some(hint)` verbatim,
+    // including blanks and non-URL kinds; the executor ignores a browser
+    // override where it makes no sense. Mirror that instead of silently
+    // dropping fields on every unrelated mutation.
+    if (typeof input.browser === "string") a.browser = input.browser;
+    if (typeof input.hint === "string") a.hint = input.hint;
     if (group) a.group = group;
     out.push(a);
   }
@@ -341,24 +454,40 @@ export function serializeConfig(config: Config): string {
 }
 
 /** Write the config back atomically (tmp + rename) keeping a `.bak` copy.
- * Creates the parent dir when missing. Returns the path written. */
+ * Creates the parent dir when missing. Returns the path written.
+ *
+ * A symlinked config is resolved first: writing a tmp file next to the link
+ * and renaming it over the link would replace the link with a regular file,
+ * while the Rust backend writes through it. Dotfile-managed configs keep
+ * their link. The original permission bits are preserved too. */
 export function saveTo(path: string, config: Config): string {
-  mkdirSync(dirname(path), { recursive: true });
-  if (existsSync(path)) {
+  let target = path;
+  try {
+    target = realpathSync(path);
+  } catch {
+    // Missing file (or a broken link): write to the requested path.
+  }
+  let mode: number | undefined;
+  try {
+    const bits = statSync(target).mode & 0o777;
+    if (bits) mode = bits;
+  } catch {
+    // New file: let the OS apply the default mode.
+  }
+  const dir = dirname(target);
+  mkdirSync(dir, { recursive: true });
+  if (existsSync(target)) {
     try {
-      copyFileSync(path, path + ".bak");
+      copyFileSync(target, target + ".bak");
     } catch {
       // Backup is best-effort; the write below is what matters.
     }
   }
   const text = serializeConfig(config);
-  const tmp = join(
-    dirname(path),
-    `.${CONFIG_FILE_NAME}.${process.pid}.${Date.now()}.tmp`,
-  );
-  writeFileSync(tmp, text, "utf8");
-  renameSync(tmp, path);
-  return path;
+  const tmp = join(dir, `.${CONFIG_FILE_NAME}.${process.pid}.${Date.now()}.tmp`);
+  writeFileSync(tmp, text, { encoding: "utf8", mode });
+  renameSync(tmp, target);
+  return target;
 }
 
 /** Find an action by numeric index or case-insensitive name. */

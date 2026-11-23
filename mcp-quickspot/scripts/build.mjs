@@ -1,21 +1,19 @@
 /** Bundle src/index.ts (incl. @modelcontextprotocol/server + zod) into a
  * single self-contained dist/index.js. One file = one Release asset. */
 import { buildSync } from "esbuild";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
-
-mkdirSync(new URL("../dist", import.meta.url), { recursive: true });
-
-const out = new URL("../dist/index.js", import.meta.url);
+const out = fileURLToPath(new URL("../dist/index.js", import.meta.url));
+mkdirSync(fileURLToPath(new URL("../dist", import.meta.url)), { recursive: true });
 
 buildSync({
-  entryPoints: [new URL("../src/index.ts", import.meta.url).pathname],
+  entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
   bundle: true,
   platform: "node",
   target: "node20",
   format: "esm",
-  outfile: out.pathname,
+  outfile: out,
   logLevel: "info",
 });
 

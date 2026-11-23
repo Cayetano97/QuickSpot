@@ -25,6 +25,11 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 pub struct AppState {
     pub config: Mutex<config::Config>,
     pub config_path: PathBuf,
+    /// Fingerprint of the file the in-memory config was read from. A settings
+    /// save refuses to overwrite a file edited externally (e.g. by the MCP
+    /// server) until the user reloads, so an un-reloaded window cannot clobber
+    /// those edits.
+    pub config_fingerprint: Mutex<Option<u64>>,
 }
 
 /// Set while the grip is dragging; the clamp watchdog reads it.
@@ -117,10 +122,11 @@ pub fn run() {
             }
             // Read + parse exactly once on the launch path; never delays
             // first frame.
-            let config = config::load_from(&config_path);
+            let (config, config_fingerprint) = commands::load_config_with_fingerprint(&config_path);
             app.manage(AppState {
                 config: Mutex::new(config),
                 config_path,
+                config_fingerprint: Mutex::new(config_fingerprint),
             });
             app.manage(overlay::Overlay::new());
 

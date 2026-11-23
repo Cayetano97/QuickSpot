@@ -1,5 +1,8 @@
 //! IPC commands exposed to the webview.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -108,6 +111,37 @@ pub fn on_overlay_closed(app: AppHandle) {
     overlay::on_closed(&app);
 }
 
+fn fingerprint_bytes(bytes: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Content fingerprint used to detect external edits between a reload and a
+/// settings save. A missing/unreadable file is `None`.
+pub fn config_fingerprint(path: &Path) -> Option<u64> {
+    std::fs::read(path)
+        .ok()
+        .map(|bytes| fingerprint_bytes(&bytes))
+}
+
+/// Read the file once so the parsed config and its fingerprint always describe
+/// the same bytes. Missing/unreadable/malformed files fall back to the
+/// defaults, exactly like `config::load_from`.
+pub fn load_config_with_fingerprint(path: &Path) -> (config::Config, Option<u64>) {
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            let fingerprint = fingerprint_bytes(&bytes);
+            let parsed = std::str::from_utf8(&bytes)
+                .ok()
+                .and_then(|text| config::parse_config(text).ok())
+                .unwrap_or_else(config::Config::with_defaults);
+            (parsed, Some(fingerprint))
+        }
+        Err(_) => (config::Config::with_defaults(), None),
+    }
+}
+
 /// Re-read the config file and push the new list to the webview. The
 /// webview re-filters with the current query, clamps the selection, and
 /// re-localizes the UI.
@@ -116,12 +150,13 @@ pub fn reload_config(app: AppHandle) {
     let state = app.state::<AppState>();
     // Parse before taking the lock: a slow disk read must not make every
     // other config reader (the boot payload, execute) wait behind it.
-    let fresh = config::load_from(&state.config_path);
+    let (fresh, fingerprint) = load_config_with_fingerprint(&state.config_path);
     let payload = {
         let mut config = state.config.lock().unwrap();
         *config = fresh;
         ConfigPayload::from(&*config)
     };
+    *state.config_fingerprint.lock().unwrap() = fingerprint;
     let _ = app.emit("config-reloaded", payload);
 }
 
@@ -145,6 +180,18 @@ pub fn save_config(
     circle_size: Option<u32>,
 ) -> Result<(), String> {
     let state = app.state::<AppState>();
+    // Refuse to overwrite an external edit (typically the MCP server) with
+    // the settings panel's in-memory list. The user can reload and retry; the
+    // webview already turns the Err into a visible save error.
+    let current = config_fingerprint(&state.config_path);
+    let expected = *state.config_fingerprint.lock().unwrap();
+    if current != expected {
+        return Err(
+            "QuickSpot's config file changed on disk (for example, an MCP server edited it). \
+             Press Cmd/Ctrl+R to reload, then save again."
+                .to_string(),
+        );
+    }
     let cfg = config::Config {
         actions,
         groups,
@@ -199,4 +246,37 @@ pub fn drag_end(app: AppHandle) {
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_detects_external_edits_and_missing_files() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("quickspot-fingerprint-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(config_fingerprint(&path), None);
+        std::fs::write(&path, r#"{"actions":[]}"#).unwrap();
+        let first = config_fingerprint(&path);
+        assert!(first.is_some());
+        std::fs::write(
+            &path,
+            r#"{"actions":[{"name":"A","kind":"url","value":"x"}]}"#,
+        )
+        .unwrap();
+        let second = config_fingerprint(&path);
+        assert!(second.is_some());
+        assert_ne!(first, second);
+        let (parsed, parsed_fp) = load_config_with_fingerprint(&path);
+        assert_eq!(parsed.actions.len(), 1);
+        assert_eq!(parsed.actions[0].name, "A");
+        assert_eq!(parsed_fp, second);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(config_fingerprint(&path), None);
+        let (missing, missing_fp) = load_config_with_fingerprint(&path);
+        assert_eq!(missing.actions.len(), 3);
+        assert_eq!(missing_fp, None);
+    }
 }

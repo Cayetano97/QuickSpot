@@ -14,16 +14,17 @@
  *   node mcp-quickspot/scripts/install.mjs --install --clients opencode,codex
  *   node mcp-quickspot/scripts/install.mjs --status
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("..", import.meta.url);
-const dist = new URL("../dist/index.js", import.meta.url);
+const root = fileURLToPath(new URL("..", import.meta.url));
+const dist = fileURLToPath(new URL("../dist/index.js", import.meta.url));
 const args = process.argv.slice(2);
 
-function newestMtimeMs(pathUrl) {
+function newestMtimeMs(path) {
   try {
-    return statSync(pathUrl).mtimeMs;
+    return statSync(path).mtimeMs;
   } catch {
     return 0;
   }
@@ -32,11 +33,10 @@ function newestMtimeMs(pathUrl) {
 let needBuild = !existsSync(dist);
 if (!needBuild) {
   // Rebuild when any src file is newer than the bundle (cheap staleness check).
-  const { readdirSync } = await import("node:fs");
-  const srcDir = new URL("../src", import.meta.url);
+  const srcDir = fileURLToPath(new URL("../src", import.meta.url));
   const distMs = newestMtimeMs(dist);
   for (const f of readdirSync(srcDir)) {
-    if (f.endsWith(".ts") && newestMtimeMs(new URL(`../src/${f}`, import.meta.url)) > distMs) {
+    if (f.endsWith(".ts") && !f.endsWith(".test.ts") && newestMtimeMs(`${srcDir}/${f}`) > distMs) {
       needBuild = true;
       break;
     }
@@ -45,8 +45,8 @@ if (!needBuild) {
 
 if (needBuild) {
   console.log("[quickspot-mcp] building dist/index.js ...");
-  const build = spawnSync("node", [new URL("./build.mjs", import.meta.url).pathname], {
-    cwd: root.pathname,
+  const build = spawnSync(process.execPath, [fileURLToPath(new URL("./build.mjs", import.meta.url))], {
+    cwd: root,
     stdio: "inherit",
   });
   if (build.status !== 0) {
@@ -55,6 +55,5 @@ if (needBuild) {
   }
 }
 
-const passthrough = args;
-const res = spawnSync(process.execPath, [dist.pathname, ...passthrough], { stdio: "inherit" });
+const res = spawnSync(process.execPath, [dist, ...args], { stdio: "inherit" });
 process.exit(res.status ?? 0);

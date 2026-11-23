@@ -13,7 +13,7 @@ describe("tool schemas", () => {
       expect(CreateActionSchema.safeParse({ name: "A", kind, value: "v" }).success).toBe(true);
     }
     expect(
-      CreateActionSchema.safeParse({ name: "S", kind: "sequence", steps: [{ kind: "url", value: "https://a.dev" }], value: "" })
+      CreateActionSchema.safeParse({ name: "S", kind: "sequence", steps: [{ kind: "url", value: "https://a.dev" }] })
         .success,
     ).toBe(true);
     expect(CreateActionSchema.safeParse({ name: "A", kind: "ftp", value: "v" }).success).toBe(false);
@@ -21,8 +21,10 @@ describe("tool schemas", () => {
 
   it("requires value for leaves and steps for sequences", () => {
     expect(CreateActionSchema.safeParse({ name: "A", kind: "url", value: "   " }).success).toBe(false);
-    expect(CreateActionSchema.safeParse({ name: "S", kind: "sequence", value: "", steps: [] }).success).toBe(false);
+    expect(CreateActionSchema.safeParse({ name: "S", kind: "sequence", steps: [] }).success).toBe(false);
     expect(CreateActionSchema.safeParse({ name: "", kind: "url", value: "v" }).success).toBe(false);
+    expect(CreateActionSchema.safeParse({ name: "   ", kind: "url", value: "v" }).success).toBe(false);
+    expect(CreateActionSchema.parse({ name: " A ", kind: "url", value: "v" }).name).toBe("A");
   });
 
   it("caps sequence steps at 5 and rejects nested sequences", () => {
@@ -41,9 +43,11 @@ describe("tool schemas", () => {
     expect(MoveActionSchema.safeParse({ ref: 0, to: -1 }).success).toBe(false);
   });
 
-  it("groups require #rrggbb colors", () => {
+  it("groups require a non-blank name and #rrggbb colors", () => {
     expect(CreateGroupSchema.safeParse({ name: "W", color: "#5e9eff" }).success).toBe(true);
     expect(CreateGroupSchema.safeParse({ name: "W", color: "red" }).success).toBe(false);
     expect(CreateGroupSchema.safeParse({ name: "", color: "#5e9eff" }).success).toBe(false);
+    expect(CreateGroupSchema.safeParse({ name: "   ", color: "#5e9eff" }).success).toBe(false);
+    expect(CreateGroupSchema.safeParse({ name: " W ", color: " #5e9eff " }).success).toBe(true);
   });
 });

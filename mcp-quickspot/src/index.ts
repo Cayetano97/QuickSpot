@@ -12,6 +12,8 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { createInterface } from "node:readline/promises";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import * as z from "zod/v4";
 import {
   findActionIndex,
@@ -20,28 +22,35 @@ import {
   sanitize,
   sanitizeGroups,
   saveTo,
+  validateConfigText,
 } from "./config.js";
-import { install, status, uninstall, type ClientId } from "./install.js";
+import { CLIENTS, install, status, uninstall, type ClientId } from "./install.js";
 import {
-  ActionKindSchema,
   CreateActionSchema,
   CreateGroupSchema,
   DeleteActionSchema,
   DeleteGroupSchema,
   MoveActionSchema,
-  StepKindSchema,
   UpdateActionSchema,
 } from "./schema.js";
 import type { Action } from "./types.js";
-import { MAX_SEQUENCE_STEPS } from "./types.js";
 
 export const SERVER_NAME = "quickspot";
 export const SERVER_VERSION = "0.1.0";
 
-const RELOAD_HINT = "Press Cmd/Ctrl+R in QuickSpot (or tray -> Reload config) to see the changes.";
+const RELOAD_HINT =
+  "Press Cmd/Ctrl+R in QuickSpot (or tray -> Reload config) to see the changes. Reload before changing settings in the app: QuickSpot refuses a settings save while the file has external edits.";
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
+}
+
+/** Mutations rebuild a corrupt config from defaults (with a .bak backup, like
+ * the app); say so instead of silently replacing the user's file. */
+function configWarning(valid: boolean, error: string | null): string {
+  return valid
+    ? ""
+    : `WARNING: the existing config could not be parsed (${error ?? "unknown error"}); the previous file is in the .bak backup and the config was rebuilt from the built-in defaults.\n`;
 }
 
 function summarizeActions(actions: Action[]): string {
@@ -71,7 +80,13 @@ function slugify(s: string, fallback = "group"): string {
 }
 
 export function createServer(): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    {
+      instructions:
+        "QuickSpot reads quickspot.config.json when the user presses Cmd/Ctrl+R. After every mutation, tell the user to reload before changing settings in the app (the app refuses a settings save while the file has external edits). This server only writes config; it never executes actions.",
+    },
+  );
 
   server.registerTool(
     "list-actions",
@@ -81,24 +96,48 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const { config, path } = loadConfig();
-      return textResult(`Config: ${path}\n${config.actions.length} acciones:\n${summarizeActions(config.actions)}`);
+      const { config, path, valid, error } = loadConfig();
+      const warning = valid
+        ? ""
+        : `WARNING: ${path} could not be parsed (${error}); showing the built-in defaults. Run validate-config for details.\n`;
+      return textResult(
+        `Config: ${path}\n${warning}${config.actions.length} actions:\n${summarizeActions(config.actions)}`,
+      );
     },
   );
 
   server.registerTool(
     "get-config",
     {
-      description: "Return the full quickspot.config.json (actions, groups, language, chip layout, theme, circle size) and the resolved path. Read-only.",
-      inputSchema: z.object({}),
+      description:
+        "Return the parsed quickspot.config.json (actions, groups, language, chip layout, theme, circle size), the resolved path and whether the file is valid. Set raw=true to return the exact file text instead (useful to inspect entries the parser skips). Read-only.",
+      inputSchema: z.object({
+        raw: z.boolean().optional().describe("Return the exact file text instead of the parsed model"),
+      }),
       annotations: { readOnlyHint: true },
     },
-    async () => {
-      const { config, path, existed } = loadConfig();
-      return textResult(
-        `Path: ${path} (${existed ? "exists" : "missing: showing default values"})\n` +
-          JSON.stringify(config, null, 2),
-      );
+    async ({ raw }) => {
+      const { config, path, existed, valid, error } = loadConfig();
+      if (raw) {
+        let text: string | null = null;
+        if (existed) {
+          try {
+            text = readFileSync(path, "utf8");
+          } catch (e) {
+            return textResult(`Path: ${path}\nExists: true\nINVALID: cannot read file (${e instanceof Error ? e.message : String(e)}).`);
+          }
+        }
+        return textResult(
+          `Path: ${path}\nExists: ${existed}\nValid: ${valid}${error ? ` (${error})` : ""}\n` +
+            (text === null ? "(missing: QuickSpot uses the built-in default values)" : text),
+        );
+      }
+      const state = existed
+        ? valid
+          ? "exists"
+          : `exists but is invalid (${error})`
+        : "missing: showing default values";
+      return textResult(`Path: ${path} (${state})\n${JSON.stringify(config, null, 2)}`);
     },
   );
 
@@ -108,10 +147,10 @@ export function createServer(): McpServer {
       description:
         "Create a QuickSpot action (url, command, app, file, folder or sequence of up to 5 steps). Validates like the backend; the name must be unique.",
       inputSchema: CreateActionSchema,
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input) => {
-      const { config, path } = loadConfig();
+      const { config, path, valid, error } = loadConfig();
       if (config.actions.some((a) => a.name.trim().toLowerCase() === input.name.trim().toLowerCase())) {
         throw new Error(`an action named "${input.name}" already exists. Use update-action to modify it.`);
       }
@@ -139,7 +178,7 @@ export function createServer(): McpServer {
       }
       config.actions = cleaned;
       saveTo(path, config);
-      return textResult(`Action "${action.name}" created (${action.kind}). ${RELOAD_HINT}`);
+      return textResult(`${configWarning(valid, error)}Action "${action.name}" created (${action.kind}). ${RELOAD_HINT}`);
     },
   );
 
@@ -151,7 +190,7 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
-      const { config, path } = loadConfig();
+      const { config, path, valid, error } = loadConfig();
       const idx = findActionIndex(config.actions, input.ref as number | string);
       if (idx < 0) throw new Error(`action not found: ${String(input.ref)}. Use list-actions to see indices/names.`);
       const prev = config.actions[idx];
@@ -195,7 +234,7 @@ export function createServer(): McpServer {
       }
       config.actions = cleaned;
       saveTo(path, config);
-      return textResult(`Action "${prev.name}" updated. ${RELOAD_HINT}`);
+      return textResult(`${configWarning(valid, error)}Action "${prev.name}" updated. ${RELOAD_HINT}`);
     },
   );
 
@@ -207,12 +246,12 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
-      const { config, path } = loadConfig();
+      const { config, path, valid, error } = loadConfig();
       const idx = findActionIndex(config.actions, input.ref as number | string);
       if (idx < 0) throw new Error(`action not found: ${String(input.ref)}.`);
       const [removed] = config.actions.splice(idx, 1);
       saveTo(path, config);
-      return textResult(`Action "${removed.name}" deleted. ${RELOAD_HINT}`);
+      return textResult(`${configWarning(valid, error)}Action "${removed.name}" deleted. ${RELOAD_HINT}`);
     },
   );
 
@@ -224,14 +263,14 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
-      const { config, path } = loadConfig();
+      const { config, path, valid, error } = loadConfig();
       const idx = findActionIndex(config.actions, input.ref as number | string);
       if (idx < 0) throw new Error(`action not found: ${String(input.ref)}.`);
       const [item] = config.actions.splice(idx, 1);
       const to = Math.max(0, Math.min(input.to, config.actions.length));
       config.actions.splice(to, 0, item);
       saveTo(path, config);
-      return textResult(`"${item.name}" moved to position ${to}. ${RELOAD_HINT}`);
+      return textResult(`${configWarning(valid, error)}"${item.name}" moved to position ${to}. ${RELOAD_HINT}`);
     },
   );
 
@@ -257,13 +296,19 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input) => {
-      const { config, path } = loadConfig();
-      const base = (input.id ?? slugify(input.name)).trim() || slugify(input.name);
+      const { config, path, valid, error } = loadConfig();
+      const name = input.name.trim();
+      const base = (input.id ?? slugify(name)).trim() || slugify(name);
       let id = base;
       for (let n = 2; config.groups.some((g) => g.id === id); n++) id = `${base}-${n}`;
-      config.groups = sanitizeGroups([...config.groups, { id, name: input.name.trim(), color: input.color }]);
+      const before = config.groups.length;
+      const groups = sanitizeGroups([...config.groups, { id, name, color: input.color }]);
+      if (groups.length !== before + 1) {
+        throw new Error(`group "${name}" failed backend validation (blank name or invalid color).`);
+      }
+      config.groups = groups;
       saveTo(path, config);
-      return textResult(`Group "${input.name}" created with id "${id}". ${RELOAD_HINT}`);
+      return textResult(`${configWarning(valid, error)}Group "${name}" created with id "${id}". ${RELOAD_HINT}`);
     },
   );
 
@@ -275,14 +320,14 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
-      const { config, path } = loadConfig();
+      const { config, path, valid, error } = loadConfig();
       if (!config.groups.some((g) => g.id === input.id)) throw new Error(`group not found: "${input.id}".`);
       config.groups = config.groups.filter((g) => g.id !== input.id);
       if (input.unassignActions) {
         for (const a of config.actions) if (a.group === input.id) delete a.group;
       }
       saveTo(path, config);
-      return textResult(`Group "${input.id}" deleted. ${RELOAD_HINT}`);
+      return textResult(`${configWarning(valid, error)}Group "${input.id}" deleted. ${RELOAD_HINT}`);
     },
   );
 
@@ -294,27 +339,40 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const { readFileSync, existsSync } = await import("node:fs");
       const path = resolveConfigPath();
       if (!existsSync(path)) return textResult(`Missing ${path}: QuickSpot will use the 3 default values. Valid.`);
+      let text: string;
+      try {
+        text = readFileSync(path, "utf8");
+      } catch (e) {
+        return textResult(`INVALID: cannot read ${path} (${e instanceof Error ? e.message : String(e)}).`);
+      }
       let raw: unknown;
       try {
-        raw = JSON.parse(readFileSync(path, "utf8"));
+        raw = JSON.parse(text);
       } catch (e) {
-        return textResult(`INVALID: malformed JSON (${e instanceof Error ? e.message : String(e)}). QuickSpot will use the default values.`);
+        return textResult(
+          `INVALID: malformed JSON (${e instanceof Error ? e.message : String(e)}). QuickSpot will use the default values.`,
+        );
       }
-      const { parseConfig } = await import("./config.js");
-      const rawActions = Array.isArray((raw as Record<string, unknown>).actions)
-        ? ((raw as Record<string, unknown>).actions as unknown[]).length
-        : -1;
-      if (rawActions === -1) return textResult("INVALID: missing `actions` array. QuickSpot will use the default values.");
-      const parsed = parseConfig(JSON.stringify(raw));
-      const skipped = rawActions - parsed.actions.length;
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+        return textResult(
+          "INVALID: the root must be a JSON object with an `actions` array. QuickSpot will use the default values.",
+        );
+      }
+      if (!Array.isArray((raw as Record<string, unknown>).actions)) {
+        return textResult("INVALID: missing `actions` array. QuickSpot will use the default values.");
+      }
+      const { config, skippedActions, skippedGroups } = validateConfigText(text);
+      const detail = (items: { index: number; reason: string }[]): string =>
+        items.map((s) => `\n  - index ${s.index}: ${s.reason}`).join("");
       return textResult(
-        `Valid. Actions: ${parsed.actions.length} (skipped: ${skipped}), groups: ${parsed.groups.length}, ` +
-          `language: ${parsed.language ?? "system"}, icons: ${parsed.showIcons}, magnify: ${parsed.magnify}, ` +
-          `chips: ${parsed.chipLayout ?? "ring"}, theme: ${parsed.theme ?? "system"}, ` +
-          `circle: ${parsed.circleSize ?? 100}%.`,
+        `Valid. Actions: ${config.actions.length} (skipped: ${skippedActions.length}), groups: ${config.groups.length} (skipped: ${skippedGroups.length}), ` +
+          `language: ${config.language ?? "system"}, icons: ${config.showIcons}, magnify: ${config.magnify}, ` +
+          `chips: ${config.chipLayout ?? "ring"}, theme: ${config.theme ?? "system"}, ` +
+          `circle: ${config.circleSize ?? 100}%.` +
+          (skippedActions.length ? `\nSkipped actions:${detail(skippedActions)}` : "") +
+          (skippedGroups.length ? `\nSkipped groups:${detail(skippedGroups)}` : ""),
       );
     },
   );
@@ -329,11 +387,6 @@ export function createServer(): McpServer {
     },
   );
 
-  // Referenced so the kind enums stay the single source of truth for docs.
-  void ActionKindSchema;
-  void StepKindSchema;
-  void MAX_SEQUENCE_STEPS;
-
   return server;
 }
 
@@ -341,18 +394,30 @@ function printHelp(): void {
   console.log(`quickspot-mcp v${SERVER_VERSION}
 Usage:
   node dist/index.js                 Serve over stdio (piped host) or ask to install (terminal)
-  node dist/index.js --install [--clients a,b] [--server PATH] [--no-copy] [--dry-run]
+  node dist/index.js --install [--clients a,b] [--server PATH] [--node PATH] [--no-copy] [--dry-run]
   node dist/index.js --status
-  node dist/index.js --uninstall [--clients a,b] [--dry-run]
+  node dist/index.js --uninstall [--clients a,b] [--remove-files] [--dry-run]
   node dist/index.js --yes ...       Same as --install, skipping the confirmation prompt
   node dist/index.js --help | --version
+
+  --server PATH   Register an existing server file as-is (no copy).
+  --node PATH     Node executable to register (default: stable PATH node).
+  --no-copy       Register the running file instead of copying it.
+  --remove-files  On uninstall, also delete the copied stable server.
+
+The installer exits non-zero when a requested client fails (broken JSON,
+failed CLI command); optional clients whose CLI is simply absent are
+reported but do not fail the install.
 
 The from-repo installer (scripts/install.mjs) never installs without asking:
 with no action flags it prompts [y/N] on a TTY, and refuses on a
 non-interactive shell unless --yes is given. Agents/CI: pass --yes.
 
-After every action change, press Cmd/Ctrl+R in QuickSpot to reload.
-Variables: QUICKSPOT_CONFIG (file to edit), QUICKSPOT_MCP_DIR (install target).`);
+After every action change, press Cmd/Ctrl+R in QuickSpot to reload. Reload
+before changing settings in the app: QuickSpot refuses a settings save while
+the file has external edits.
+Variables: QUICKSPOT_CONFIG (file to edit), QUICKSPOT_MCP_DIR (install target),
+QUICKSPOT_NODE (node executable to register).`);
 }
 
 /** Entry decision for a bare invocation (no explicit action flags).
@@ -376,30 +441,32 @@ export function stripYes(argv: string[]): string[] {
   return argv.filter((a) => a !== "--yes" && a !== "-y");
 }
 
-function parseClients(value: string | undefined): ClientId[] | undefined {
+export function parseClients(value: string | undefined): ClientId[] | undefined {
   if (!value) return undefined;
   const ids = value.split(",").map((s) => s.trim()).filter(Boolean) as ClientId[];
-  const valid: ClientId[] = [
-    "claude-desktop",
-    "claude-code",
-    "cursor",
-    "vscode",
-    "windsurf",
-    "opencode",
-    "gemini",
-    "codex",
-  ];
   for (const id of ids) {
-    if (!valid.includes(id)) throw new Error(`unknown client: "${id}" (${valid.join(", ")})`);
+    if (!CLIENTS.includes(id)) {
+      throw new Error(`unknown client: "${id}" (${CLIENTS.join(", ")})`);
+    }
   }
   return ids;
 }
 
-export function printInstallResult(res: { serverPath: string; copied: boolean; clients: { id: string; note: string; file: string | null }[] }, dryRun: boolean): void {
-  console.log(`Server: ${res.serverPath}${res.copied ? " (copied)" : ""}${dryRun ? " [dry-run]" : ""}`);
-  for (const c of res.clients) console.log(`- ${c.id}: ${c.note}${c.file ? ` (${c.file})` : ""}`);
-  console.log(RELOAD_HINT);
-  console.log("Restart your AI client so it picks up the server.");
+export function printInstallResult(
+  res: { serverPath: string; copied: boolean; clients: { id: string; note: string; file: string | null; failed: boolean }[] },
+  dryRun: boolean,
+): void {
+  const copyLabel = res.copied ? (dryRun ? " (would copy)" : " (copied)") : "";
+  console.log(`Server: ${res.serverPath}${copyLabel}${dryRun ? " [dry-run]" : ""}`);
+  for (const c of res.clients) {
+    console.log(`- ${c.id}${c.failed ? " [FAILED]" : ""}: ${c.note}${c.file ? ` (${c.file})` : ""}`);
+  }
+  const failures = res.clients.filter((c) => c.failed).length;
+  if (failures) console.log(`${failures} client(s) failed; see the messages above.`);
+  if (res.clients.some((c) => !c.failed)) {
+    console.log(RELOAD_HINT);
+    console.log("Restart your AI client so it picks up the server.");
+  }
 }
 
 async function askYesNo(question: string): Promise<boolean> {
@@ -439,25 +506,60 @@ export function runCli(rawArgv = process.argv.slice(2)): boolean {
   const dryRun = has("--dry-run");
   if (has("--status")) {
     console.log(status());
-    console.log(`QuickSpot config: ${resolveConfigPath()}`);
+    const cfg = loadConfig();
+    console.log(
+      `QuickSpot config: ${cfg.path} (${cfg.existed ? (cfg.valid ? "valid" : `invalid: ${cfg.error}`) : "missing: using defaults"})`,
+    );
     return true;
   }
   if (has("--uninstall")) {
-    const clients = parseClients(flag("--clients"));
-    for (const line of uninstall({ clients, dryRun })) console.log(line);
+    let clients: ClientId[] | undefined;
+    try {
+      clients = parseClients(flag("--clients"));
+    } catch (e) {
+      console.error(`quickspot-mcp: ${e instanceof Error ? e.message : String(e)}`);
+      process.exitCode = 2;
+      return true;
+    }
+    const res = uninstall({ clients, dryRun, removeFiles: has("--remove-files") });
+    for (const line of res.lines) console.log(line);
+    if (res.failed) process.exitCode = 1;
     return true;
   }
   if (has("--install")) {
-    const clients = parseClients(flag("--clients"));
+    let clients: ClientId[] | undefined;
+    try {
+      clients = parseClients(flag("--clients"));
+    } catch (e) {
+      console.error(`quickspot-mcp: ${e instanceof Error ? e.message : String(e)}`);
+      process.exitCode = 2;
+      return true;
+    }
     const server = flag("--server");
-    const noCopy = has("--no-copy");
-    printInstallResult(install({ serverPath: server, clients, dryRun, noCopy }), dryRun);
+    const nodePath = flag("--node");
+    const noCopy = has("--no-copy") || !!server;
+    try {
+      const res = install({ serverPath: server, clients, dryRun, noCopy, nodePath });
+      printInstallResult(res, dryRun);
+      if (res.clients.some((c) => c.failed)) process.exitCode = 1;
+    } catch (e) {
+      console.error(`quickspot-mcp: install failed: ${e instanceof Error ? e.message : String(e)}`);
+      process.exitCode = 1;
+    }
     return true;
   }
   return false;
 }
 
-const isMain = process.argv[1] !== undefined && import.meta.url.endsWith("/index.js");
+const isMain = (() => {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+})();
 if (isMain) {
   if (!runCli()) {
     // No action flags: disambiguate host-spawn from human invocation.

@@ -9,21 +9,21 @@ It only edits `quickspot.config.json` with the **same validation rules as the Ru
 | Tool | What it does |
 | --- | --- |
 | `list-actions` | List actions (index, name, type, value, group) |
-| `get-config` | Dump the full config + resolved path |
+| `get-config` | Parsed config + resolved path + validity; `raw=true` returns the exact file text |
 | `create-action` | Create an action (`url`, `command`, `app`, `file`, `folder`, `sequence` of up to 5 steps) |
 | `update-action` | Update by index or name (`null` clears `browser`/`hint`/`group`/`steps`) |
 | `delete-action` | Delete by index or name |
 | `move-action` | Reorder (order defines search ranking) |
 | `list-groups` / `create-group` / `delete-group` | Manage `#rrggbb` color groups |
-| `validate-config` | Validate without modifying (counts entries ignored by the backend) |
+| `validate-config` | Validate without modifying; lists which entries the backend ignores and why |
 
 Read-only resource: `quickspot://config`.
 
-> After every change, press `Cmd/Ctrl+R` in QuickSpot (or tray → Reload config). The app does not watch the file.
+> After every change, press `Cmd/Ctrl+R` in QuickSpot (or tray → Reload config). The app does not watch the file. **Reload before changing settings in the app**: the settings panel saves its in-memory action list, and QuickSpot refuses a save when the file changed externally (it asks you to reload instead of overwriting the MCP edit).
 
 ## Installation
 
-**Option A — from a Release (recommended, no cloning):** download `quickspot.mcpb` (Claude Desktop: double-click or Settings → Extensions → Install) or `dist/index.js` and register it:
+**Option A — from a Release (recommended, no cloning):** download `quickspot.mcpb` (Claude Desktop: double-click or Settings → Extensions → Install) or `quickspot-mcp.js` and register it (Node.js 20+ required, including for the `.mcpb` because its runtime is `node`):
 
 ```sh
 node /downloaded/path/quickspot-mcp.js            # asks before installing (opt-in)
@@ -33,10 +33,14 @@ node /downloaded/path/quickspot-mcp.js --status   # verify
 
 **Option B — from this repo (or for an AI to install it):** see [`INSTALL.md`](INSTALL.md) — one command, same on macOS, Windows and Linux.
 
+The installer registers user/global scope by default: OpenCode gets `--global`, Claude Code gets `--scope user`, VS Code gets its native `~/.copilot/mcp-config.json` (`mcpServers`, `type: "stdio"`) plus the legacy user `mcp.json` when it already exists. `--server PATH` registers an existing server file as-is (no copy); `--node PATH` picks the Node executable to register.
+
 ## Development
 
 ```sh
 npm ci && npm test && npm run build          # tests + self-contained bundle dist/index.js
-QUICKSPOT_CONFIG=/tmp/qs.json node scripts/e2e-check.mjs   # stdio protocol smoke test
-npm run pack-mcpb                             # build quickspot.mcpb for Claude Desktop
+npm run e2e                                  # stdio protocol smoke (fresh temp config)
+npm run smoke                                # runs the bundle renamed to quickspot-mcp.js
+npm run check                                # typecheck + tests + build + e2e + smoke
+npm run pack-mcpb                            # build quickspot.mcpb for Claude Desktop
 ```

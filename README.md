@@ -140,9 +140,12 @@ QuickSpot ships a MCP so any AI agent (OpenCode, Claude Code,
 Claude Desktop, Cursor, VS Code Copilot, Windsurf, Gemini CLI, Codex CLI) can list, create, update and
 delete your actions in `quickspot.config.json` — with the same validation as
 the app. Grab `quickspot.mcpb` (Claude Desktop, one click) or `quickspot-mcp.js`
-from the **Releases** tab, then follow [`mcp-quickspot/INSTALL.md`](mcp-quickspot/INSTALL.md)
-(one command, macOS / Windows / Linux; opt-in, it asks before installing). After each change press `Cmd/Ctrl+R` in
-QuickSpot to reload.
+from the **Releases** tab (Node.js 20+ required), then follow
+[`mcp-quickspot/INSTALL.md`](mcp-quickspot/INSTALL.md) (one command, macOS /
+Windows / Linux; opt-in, it asks before installing). After each change press
+`Cmd/Ctrl+R` in QuickSpot **before changing settings in the app**: the settings
+panel saves its in-memory list, and QuickSpot refuses a save when the file
+changed externally rather than overwriting the MCP edit.
 
 ## Testing
 
@@ -156,15 +159,16 @@ QuickSpot to reload.
 - **Backend** — `cargo test` (in `src-tauri/`): config parsing fallbacks,
   per-platform execution plans, app discovery, and the drag-clamp /
   monitor-centering math.
-- **MCP server** — `npm run typecheck && npm test && npm run build` (in
-  `mcp-quickspot/`): config validation parity with the Rust backend,
-  installer and schema.
+- **MCP server** — `npm run check` (in `mcp-quickspot/`): typecheck, Vitest,
+  bundle build, real stdio e2e and the renamed Release-asset smoke. Covers
+  config parity with the Rust backend, installer scopes and schema.
 
 All three suites run on GitHub Actions for pushes to `main` and pull
-requests (see `.github/workflows/ci.yml`): frontend and MCP on Linux, the
-backend on Linux, macOS and Windows — so the platform-specific branches
-(macOS bundle-id routing, the Windows `cmd /c` shell, Linux `.desktop`
-parsing) are exercised on their real platforms.
+requests (see `.github/workflows/ci.yml`): frontend on Linux, the MCP on
+Linux, macOS and Windows (including the real stdio e2e and the renamed
+Release asset), and the backend on Linux, macOS and Windows — so the
+platform-specific branches (macOS bundle-id routing, the Windows `cmd /c`
+shell, Linux `.desktop` parsing) are exercised on their real platforms.
 
 ## Translations
 
