@@ -14,10 +14,10 @@
  * - `CIRCLE_SIZE_MIN` (85%): below that the 13px chip labels cross the 11px
  *   legibility floor of the macOS HIG, so the design refuses to shrink
  *   further.
- * - `CIRCLE_SIZE_MAX` (125%): the 520x580 canvas at 1.25 is 650x725, which
- *   still fits the default 680x740 OS window (and every smaller window,
- *   because `--overlay-scale` already shrinks the canvas to fit, so the
- *   product of the two stays inside the window at any allowed size).
+ * - `CIRCLE_SIZE_MAX` (125%): the 520x580 canvas at 1.25 is 650x725. The
+ *   window-fit factor (`syncUiScale()` in main.ts) divides the available
+ *   viewport by the zoomed canvas, so the composition stays inside every
+ *   allowed window size while the dialogs keep their native type size.
  *
  * Unknown or malformed values fall back to the default (100%), and any
  * in-range number snaps to the grid, so a hand-edited config can never

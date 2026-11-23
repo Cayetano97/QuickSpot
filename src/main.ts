@@ -128,7 +128,7 @@ let themeDraft: StoredTheme | null = null;
 let appVersion = "";
 
 const root = document.querySelector<HTMLElement>("#overlay")!;
-/** The launcher composition wrapper: the only element `--launcher-scale`
+/** The launcher composition wrapper: the only element the launcher scale
  *  transforms, and the coordinate reference for pointer mapping (chips are
  *  laid out in its unscaled 520x580 canvas). */
 const launcher = document.querySelector<HTMLElement>("#launcher")!;
@@ -348,6 +348,7 @@ function openUpdatePopup(): void {
   updatePopupError.classList.remove("visible");
   updatePopup.classList.add("open");
   updatePopup.setAttribute("aria-hidden", "false");
+  launcher.setAttribute("aria-hidden", "true");
   syncUpdatePopup();
   updatePopupNow.focus();
 }
@@ -360,6 +361,7 @@ function openUpdatePopupForProgress(): void {
   updatePopupOpen = true;
   updatePopup.classList.add("open");
   updatePopup.setAttribute("aria-hidden", "false");
+  launcher.setAttribute("aria-hidden", "true");
   syncUpdatePopup();
 }
 
@@ -369,6 +371,7 @@ function closeUpdatePopup(): void {
   updatePopupOpen = false;
   updatePopup.classList.remove("open");
   updatePopup.setAttribute("aria-hidden", "true");
+  if (!settingsOpen && !actionsOpen) launcher.removeAttribute("aria-hidden");
   if (overlay.phase === "visible" && !panelOpen()) input.focus();
 }
 
@@ -541,13 +544,31 @@ settingsUpdateBtn.addEventListener("click", () => {
   void checkForUpdatesManual();
 });
 
+/** Composite launcher scale: the circle-size preference times the window
+ * fit. Only the launcher wrapper is scaled; dialogs keep native CSS size. */
+function syncLauncherTransform(): void {
+  const total = circleScale(circleDraft ?? savedCircleSize) * uiScale;
+  root.style.setProperty("--launcher-total-scale", String(total));
+}
+
 function syncUiScale(): void {
-  // Scale against the OS window (680x740): the launcher canvas stays 520x580
-  // centered inside it, so the whole overlay shrinks as one on small screens.
-  const next = Math.max(0.5, Math.min(1, window.innerWidth / 680, window.innerHeight / 740));
-  if (next === uiScale && launcherRect !== null) return;
+  // Fit the actual 520x580 canvas (not the 680x740 default window) into the
+  // current viewport, accounting for the circle-size zoom. At 100% this
+  // keeps the launcher at ~89% on a 480x600 window instead of shrinking it
+  // to 71%; dialogs are unaffected either way.
+  const circle = circleScale(circleDraft ?? savedCircleSize);
+  const gutter = 16;
+  const next = Math.max(
+    0.5,
+    Math.min(
+      1,
+      (window.innerWidth - gutter) / (CANVAS_W * circle),
+      (window.innerHeight - gutter) / (CANVAS_H * circle),
+    ),
+  );
   uiScale = next;
-  root.style.setProperty("--overlay-scale", String(uiScale));
+  root.style.setProperty("--launcher-fit-scale", String(uiScale));
+  syncLauncherTransform();
   invalidateLauncherRect();
 }
 
@@ -681,6 +702,10 @@ function showQuery(): void {
   // what clips), keeping the caret reachable instead of typing blind.
   const overflowing = queryWrap.scrollWidth > queryWrap.clientWidth + 1;
   queryWrap.classList.toggle("overflowing", overflowing);
+  // The pill shows only the tail of a long query; expose the whole string on
+  // hover so nothing typed (or the placeholder) is ever unreadable.
+  if (overflowing) queryWrap.title = text;
+  else queryWrap.removeAttribute("title");
   if (overflowing) queryWrap.scrollLeft = queryWrap.scrollWidth;
 }
 
@@ -688,9 +713,13 @@ function showQuery(): void {
 function showRunError(msg: string): void {
   const el = runError;
   el.textContent = t(currentLanguage, "runError", { msg });
+  el.setAttribute("aria-hidden", "false");
   el.classList.add("visible");
   window.clearTimeout(runErrorTimer);
-  runErrorTimer = window.setTimeout(() => el.classList.remove("visible"), RUN_ERROR_MS);
+  runErrorTimer = window.setTimeout(() => {
+    el.classList.remove("visible");
+    el.setAttribute("aria-hidden", "true");
+  }, RUN_ERROR_MS);
 }
 
 /**
@@ -901,19 +930,22 @@ function syncChipsMode(): void {
   syncChips();
 }
 
-/** Reflect the circle-size preference (draft or saved): one
- *  `--launcher-scale` on `#overlay`, inherited by the `#launcher` wrapper,
- *  resizes the whole composition — disc, chips of either layout, centre
- *  cluster — while the settings row follows (slider, readout, and the
- *  Screen Reader's value text). Runs on every slider input (live preview),
- *  on config load, and when the panel closes (draft revert). No transition
- *  by design: while dragging, the launcher must track the pointer 1:1. */
+/** Reflect the circle-size preference (draft or saved): `--launcher-scale`
+ *  on `#overlay` feeds the composite transform on `#launcher`, resizing the
+ *  whole composition — disc, chips of either layout, centre cluster — while
+ *  the settings row follows (slider, readout, and the Screen Reader's value
+ *  text). Runs on every slider input (live preview), on config load, and
+ *  when the panel closes (draft revert). No transition by design: while
+ *  dragging, the launcher must track the pointer 1:1. */
 function applyCircleSize(): void {
   const size = circleDraft ?? savedCircleSize;
   root.style.setProperty("--launcher-scale", String(circleScale(size)));
   settingsCircle.value = String(size);
   settingsCircleValue.textContent = `${size}%`;
   settingsCircle.setAttribute("aria-valuetext", `${size}%`);
+  // The fit depends on the zoom: a 125% circle needs a smaller window-fit
+  // factor than 85%, so recompute both and write the composite transform.
+  syncUiScale();
   invalidateLauncherRect();
 }
 
@@ -963,6 +995,7 @@ function syncChips(): void {
       if (el.style.opacity !== "0") el.style.opacity = "0";
       el.classList.remove("selected");
       el.setAttribute("aria-pressed", "false");
+      el.removeAttribute("title");
       el.tabIndex = -1;
       continue;
     }
@@ -988,6 +1021,10 @@ function syncChips(): void {
     if (el.style.opacity !== "1") el.style.opacity = "1";
     el.classList.toggle("selected", i === selected);
     el.setAttribute("aria-label", action.name);
+    // The ring label is clipped to the tile's width; the title gives every
+    // truncated name a hover target with the full text (aria-label already
+    // covers assistive tech).
+    el.setAttribute("title", action.name);
     el.setAttribute("aria-pressed", String(i === selected));
     el.tabIndex = panelOpen() ? -1 : 0;
   }
@@ -1115,9 +1152,12 @@ function render(): void {
       : staggeredProgress(overlay.animProgress, i, count, STAGGER_FRAC);
     const opacity = closing ? 1 - easeOutCubic(chipT) : easeOutQuart(chipT);
     if (chipMode === "pills") {
-      // The classic entrance: the pill plain-eases out of nothing, from its
-      // own centre. No wind and no overshoot (those belong to the tiles).
-      const animScale = closing ? 1 - easeOutCubic(chipT) : easeOutCubic(chipT);
+      // The classic entrance: the pill fades in from 0.92 (never from
+      // scale(0) — an object that grows from a point looks like it came
+      // from nowhere); closing shrinks back to 0.92 as the opacity fades.
+      // No wind and no overshoot (those belong to the tiles).
+      const eased = easeOutCubic(chipT);
+      const animScale = closing ? 0.92 + 0.08 * (1 - eased) : 0.92 + 0.08 * eased;
       const [cx, cy] = pillCenters(count)[i];
       const scale = Math.min(animScale, MAX_FINAL_SCALE);
       setChipTransform(
@@ -1134,10 +1174,14 @@ function render(): void {
     }
     // Opening: a small overshoot, so each tile inflates instead of merely
     // scaling up, and a few degrees of "wind" so the ring swings into place
-    // (rotation is free — no layout, no repaint). Closing keeps the plain
-    // ease-out (a deflate has no bounce).
-    const animScale = closing ? 1 - easeOutCubic(chipT) : easeOutBack(chipT, 1);
-    const wind = (1 - easeOutCubic(chipT)) * 10;
+    // (rotation is free — no layout, no repaint). Start at 0.92, never
+    // scale(0): the tile is already a visible shape while it fades in.
+    // Closing keeps the plain ease-out (a deflate has no bounce).
+    const eased = easeOutCubic(chipT);
+    const animScale = closing
+      ? 0.92 + 0.08 * (1 - eased)
+      : 0.92 + 0.08 * easeOutBack(chipT, 1);
+    const wind = (1 - eased) * 10;
     const scale = Math.min(animScale, PETAL_HOVER_PEAK);
     setChipTransform(i, chipTransform(layout, layout.rotation - wind, scale));
     el.style.opacity = String(opacity);
@@ -1768,10 +1812,9 @@ function chipAtPointer(): number {
  * petal layout lives (`src/lib/petals.ts`).
  *
  * `clientX/Y` are viewport-relative (MDN: MouseEvent.clientX) while the
- * 520x580 `#overlay` canvas is centered inside the larger 680x740 OS window,
- * additionally scaled via `transform: scale(var(--overlay-scale))`, and the
- * `#launcher` wrapper inside it carries the circle-size zoom
- * (`--launcher-scale`). `getBoundingClientRect()` returns the element's
+ * 520x580 `#overlay` canvas is centered in the window and the `#launcher`
+ * wrapper carries the composite circle-size + window-fit transform
+ * (`--launcher-total-scale`). `getBoundingClientRect()` returns the element's
  * border box in the same viewport space *including* transforms (MDN:
  * Element.getBoundingClientRect), so measuring the wrapper — the box the
  * chips are laid out in — and un-scaling by `CANVAS / rect` yields the
@@ -1912,6 +1955,9 @@ function focusPanel(panel: HTMLElement): void {
   minimize.tabIndex = -1;
   input.tabIndex = -1;
   root.classList.add("panel");
+  // The dialog owns the screen: the launcher behind it is decorative and
+  // must leave the accessibility tree (its controls are already -1).
+  launcher.setAttribute("aria-hidden", "true");
   panel.classList.add("open");
   panel.setAttribute("aria-hidden", "false");
   input.blur();
@@ -1920,6 +1966,7 @@ function focusPanel(panel: HTMLElement): void {
 /** Restores the launcher controls after a panel closes. */
 function releasePanel(): void {
   root.classList.remove("panel");
+  launcher.removeAttribute("aria-hidden");
   hub.tabIndex = 0;
   addBtn.tabIndex = 0;
   minimize.tabIndex = 0;
@@ -2054,9 +2101,11 @@ function syncActionsCount(): void {
   if (!list || !countEl) return;
   const count = list.querySelectorAll(".settings-row").length;
   countEl.textContent = String(count);
+  // Screen readers get a proper singular: "1 action", not "1 actions".
+  const countKey: DictKey = count === 1 ? "actionsCountOne" : "actionsCount";
   countEl.setAttribute(
     "aria-label",
-    t(currentLanguage, "actionsCount", { count: String(count) }),
+    t(currentLanguage, countKey, { count: String(count) }),
   );
 }
 
@@ -2218,6 +2267,7 @@ function renderAppList(
     const path = document.createElement("span");
     path.className = "ap-path";
     path.textContent = app.value;
+    path.title = app.value;
     item.append(label, path);
     list.appendChild(item);
     items.push(item);
@@ -2598,6 +2648,11 @@ function buildGroupRow(id: string, name: string, color: string, autoId = false):
       swatch.setAttribute("aria-expanded", "true");
       lastPopoverOpenAt = Date.now();
       refreshGp();
+      // The groups list scrolls: flip the color popover above the row (or
+      // cap it) when there is no room below, exactly like the other pickers.
+      // The popover is positioned against the row (its containing block),
+      // not the small swatch inside it, so the flip math matches the CSS.
+      positionActionsPopover(row, picker);
       const match = gpItems.findIndex(
         (it) => it.dataset.color === hex.value.trim().toLowerCase(),
       );
@@ -2797,6 +2852,9 @@ function syncGroupTrigger(trigger: HTMLElement): void {
     "aria-label",
     `${t(currentLanguage, "actionGroupLabel")}: ${label}`,
   );
+  // The trigger's label is ellipsized on narrow rows; keep the full group
+  // name reachable on hover.
+  trigger.setAttribute("title", label);
   const dot = trigger.querySelector<HTMLElement>(".s-group-dot");
   if (dot) dot.style.background = groupTriggerColor(value);
 }
@@ -2857,6 +2915,9 @@ function buildGroupPicker(host: HTMLElement, initial: string): HTMLElement {
       const label = document.createElement("span");
       label.className = "sg-name";
       label.textContent = name;
+      // The picker may wrap long names; the title is the guarantee that the
+      // full value is always reachable even if a row clips it.
+      opt.title = name;
       opt.append(dot, label);
       listbox.appendChild(opt);
       options.push(opt);
@@ -4028,6 +4089,7 @@ async function init(): Promise<void> {
       normalizedQuery = "";
       input.value = "";
       runError.classList.remove("visible");
+      runError.setAttribute("aria-hidden", "true");
       showQuery();
       refilter();
       root.classList.add("open");

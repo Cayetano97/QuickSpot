@@ -74,6 +74,10 @@
   --duration-base: 180ms;
   --editor-control-h: 40px;
   --editor-icon-size: 34px;
+  /* Select/group chevron: a data URI so the closed control keeps the native
+     look without a custom arrow element. Light overrides it below for >=3:1
+     contrast on white. */
+  --chevron-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9ca0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   font-size: 16px;
@@ -203,6 +207,7 @@
   --swatch-border: #6e6e73;
   --dashed-border: #6e6e73;
   --dashed-border-hover: #51515a;
+  --chevron-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2360606a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
 }
 
 * {
@@ -234,15 +239,41 @@ textarea {
   -webkit-user-select: text;
 }
 
+/* Read-only text users may need to quote or copy (errors, version): keep it
+   selectable even though the launcher disables selection globally. */
+#run-error,
+#settings-error,
+#actions-error,
+#update-popup-error,
+#update-popup-status,
+#update-popup-desc,
+.settings-version {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 html,
 body {
   background: transparent;
   overflow: hidden;
+  /* The window is a fixed app shell: never rubber-band the whole page. */
+  overscroll-behavior: none;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   width: 100vw;
   height: 100vh;
+  /* Dynamic viewport units where available; identical on desktop windows. */
+  height: 100dvh;
+}
+
+button,
+[role="button"] {
+  touch-action: manipulation;
 }
 
 button {
@@ -259,13 +290,15 @@ button {
 #overlay {
   /* Launcher canvas stays 520x580; the OS window is 680x740, so the canvas
      is centered and the larger actions panel (620x680) can overflow it
-     symmetrically without clipping its shadow. */
+     symmetrically without clipping its shadow.
+     The window-fit transform lives on #launcher, never here: dialogs must
+     keep their native type size at every window size. */
   position: fixed;
   left: 50%;
   top: 50%;
   width: 520px;
   height: 580px;
-  transform: translate(-50%, -50%) scale(var(--overlay-scale, 1));
+  transform: translate(-50%, -50%);
   transform-origin: center;
   visibility: hidden;
 }
@@ -284,19 +317,22 @@ button {
    wrapper whose centre IS the disc centre (520x580 canvas), so every
    designed proportion survives — and both chip layouts (ring tiles and pill
    orbit) inherit the zoom for free, because they are laid out in the same
-   canvas coordinates. The value comes from `--launcher-scale` (set by
-   `applyCircleSize()` in main.ts, percent -> factor via `circle.ts`), and it
-   composes with `--overlay-scale` on #overlay, which keeps the window fit:
-   the 520x580 canvas at the 125% maximum is 650x725, inside the default
-   680x740 OS window (and the overlay scale only shrinks both further on
-   smaller windows). Transform only: no transition — while dragging the
+   canvas coordinates. `--launcher-scale` (set by `applyCircleSize()` in
+   main.ts, percent -> factor via `circle.ts`) carries the circle-size
+   preference; `--launcher-total-scale` multiplies it by the window-fit
+   factor from `syncUiScale()`, so the 520x580 canvas always fits the window
+   at every circle size. Transform only: no transition — while dragging the
    slider the composition must track the pointer 1:1, exactly like the dock
    magnification. The dialogs (update popup, settings, actions) stay outside
    this wrapper: resizing the launcher must never resize a panel. */
 #launcher {
   position: absolute;
   inset: 0;
-  transform: scale(var(--launcher-scale, 1));
+  /* One composite factor: the circle-size preference (`--launcher-scale`)
+     multiplied by the window-fit factor (`--launcher-fit-scale`, set by
+     `syncUiScale()`). Dialogs sit outside this wrapper and therefore keep
+     native CSS size at every window size. */
+  transform: scale(var(--launcher-total-scale, 1));
   transform-origin: 50% 50%;
 }
 
@@ -488,8 +524,9 @@ button {
   justify-content: center;
   padding: 0 8px;
   border-radius: 8px;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
   color: var(--ink-dim);
   background: var(--chip-fill);
@@ -613,6 +650,11 @@ button {
 #update-popup-card {
   width: min(360px, calc(100vw - 48px));
   max-width: calc(100vw - 48px);
+  /* A long install error must scroll inside the card instead of pushing it
+     past the overlay/viewport. */
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: 20px;
   background: var(--panel-fill);
   border: 1px solid var(--panel-border);
@@ -678,6 +720,8 @@ button {
   letter-spacing: 0.01em;
   color: var(--update-ink);
   min-height: 18px;
+  /* "Downloading 1%" -> "Downloading 100%" must not jitter the line. */
+  font-variant-numeric: tabular-nums;
 }
 
 #update-popup-status:empty {
@@ -711,6 +755,7 @@ button {
   color: var(--disc);
   background: var(--accent);
   border: 1px solid var(--accent);
+  font-variant-numeric: tabular-nums;
   transition: opacity var(--duration-fast) ease;
 }
 
@@ -1456,7 +1501,7 @@ label.settings-list-row {
   cursor: pointer;
 }
 
-@media (hover:hover) {
+@media (hover: hover) and (pointer: fine) {
   .settings-list-row:hover {
     border-color: var(--hover-border);
     background: var(--row-hover);
@@ -1532,6 +1577,7 @@ label.settings-list-row {
   outline: none;
   cursor: pointer;
   flex: none;
+  font-variant-numeric: tabular-nums;
   transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease,
     color var(--duration-fast) ease;
 }
@@ -1542,7 +1588,7 @@ label.settings-list-row {
   padding: 0 32px 0 14px;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9ca0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: var(--chevron-icon);
   background-repeat: no-repeat;
   background-position: right 11px center;
   background-size: 13px 13px;
@@ -1648,6 +1694,13 @@ label.settings-list-row {
   transform: translateX(18px);
 }
 
+/* Light theme: the off knob must read as a physical white knob on the gray
+   rail (accent is dark there, so the base rule would paint a black dot that
+   looks "on"). On keeps the near-white disc knob on the dark accent rail. */
+[data-theme="light"] .switch-track::after {
+  background: #ffffff;
+}
+
 .switch input:focus-visible + .switch-track {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -1717,10 +1770,20 @@ label.settings-list-row {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 18px 20px 22px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Inner scrollers never chain their bounce to the panel (or the window). */
+.app-picker .ap-list,
+.settings-row .s-kind-listbox,
+.settings-row .s-group-picker,
+.group-row .g-picker,
+#update-popup-card {
+  overscroll-behavior: contain;
 }
 
 #settings-rows::-webkit-scrollbar,
@@ -2339,10 +2402,19 @@ label.settings-list-row {
 }
 
 /* The group field rides the value line; it only appears once at least one
-   group exists (progressive disclosure keeps rows calm by default). */
+   group exists (progressive disclosure keeps rows calm by default). 200px
+   leaves the value field room at the default window; the label wraps to two
+   lines there, and very wide windows (>=760px viewport) get 260px so common
+   names fit on one line. */
 .settings-row .s-group-field {
-  flex: 0 0 132px;
+  flex: 0 0 200px;
   min-width: 0;
+}
+
+@media (min-width: 760px) {
+  .settings-row .s-group-field {
+    flex-basis: 260px;
+  }
 }
 
 .settings-actions:not(.has-groups) .s-group-field {
@@ -2356,7 +2428,7 @@ label.settings-list-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9ca0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: var(--chevron-icon);
   background-repeat: no-repeat;
   background-position: right 9px center;
   background-size: 14px 14px;
@@ -2375,9 +2447,14 @@ label.settings-list-row {
 .settings-row .s-group-value {
   flex: 1;
   min-width: 0;
+  /* A long group name wraps to two lines instead of disappearing behind an
+     ellipsis; the trigger grows and the full value is readable in place. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 /* ----------------------------------------------------------- groups editor */
@@ -2573,6 +2650,8 @@ label.settings-list-row {
   right: 6px;
   z-index: 20;
   width: 224px;
+  max-height: 360px;
+  overflow-y: auto;
   border: 1px solid var(--ghost-border);
   border-radius: 12px;
   background: var(--popover-fill);
@@ -2581,6 +2660,13 @@ label.settings-list-row {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* `positionActionsPopover()` flips the popover above the swatch when the
+   groups list has no room below. */
+.group-row .g-picker.open-up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 .group-row .g-picker[hidden] {
@@ -2725,9 +2811,10 @@ label.settings-list-row {
 .settings-row .sg-item .sg-name {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  /* The picker is where a truncated trigger label can be read in full:
+     wrap long group names instead of ellipsizing them a second time. */
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .settings-row .sg-item.sg-active {
@@ -2861,10 +2948,12 @@ label.settings-list-row {
   stroke-linejoin: round;
 }
 
-#actions-add:hover {
-  color: var(--accent);
-  border-color: var(--dashed-border-hover);
-  background: var(--row-hover);
+@media (hover: hover) and (pointer: fine) {
+  #actions-add:hover {
+    color: var(--accent);
+    border-color: var(--dashed-border-hover);
+    background: var(--row-hover);
+  }
 }
 
 #actions-add:active {
@@ -3189,10 +3278,12 @@ label.settings-list-row {
   stroke-linejoin: round;
 }
 
-.settings-row .s-steps-add:hover:not(:disabled) {
-  color: var(--accent);
-  border-color: var(--dashed-border-hover);
-  background: var(--row-hover);
+@media (hover: hover) and (pointer: fine) {
+  .settings-row .s-steps-add:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--dashed-border-hover);
+    background: var(--row-hover);
+  }
 }
 
 .settings-row .s-steps-add:active:not(:disabled) {
@@ -3217,11 +3308,19 @@ label.settings-list-row {
 #settings-error,
 #actions-error {
   flex: 1;
+  min-width: 0;
   font-size: 12.5px;
+  line-height: 1.35;
   color: var(--ink-dim);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  /* Errors wrap instead of ending in an ellipsis: the message is the one
+     piece of copy a user may need to read in full. */
+  overflow-wrap: anywhere;
+}
+
+/* Empty slots collapse so the footer keeps its compact single-row height. */
+#settings-error:empty,
+#actions-error:empty {
+  display: none;
 }
 
 /* Both dialogs report failures in the same red (per-theme for 4.5:1). */
@@ -3267,14 +3366,133 @@ label.settings-list-row {
   pointer-events: none;
 }
 
+/* Instant press feedback for the controls that have no transform of their
+   own. The CSS `scale` property composes with their existing transitions and
+   lands on the next frame (Apple: respond on pointer-down, not release). */
+#actions-close:active,
+#settings-close:active,
+#update-popup-close:active,
+.settings-row .s-del:active,
+.settings-row .s-step-del:active,
+.settings-row .s-order-controls button:not(:disabled):active {
+  scale: 0.92;
+}
+
+#settings-update-check:active:not(:disabled),
+#update-popup-now:active:not(:disabled),
+#update-popup-later:active:not(:disabled),
+#update-popup-next:active:not(:disabled) {
+  scale: 0.98;
+}
+
+/* The action editor's cards stack once the panel gets narrow. The threshold
+   is on the viewport (the panel is viewport-sized): at 620px the actions
+   panel is 560px wide, below which the desktop 3-column card starts squeezing
+   the value and group fields. Settings uses the simpler 480px block below. */
+@media (max-width: 620px) {
+  .settings-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .settings-row-top {
+    flex-wrap: wrap;
+  }
+
+  .settings-row .s-name-field {
+    /* Keep the kind trigger beside the name (it is only 34px); the name
+       still gets the whole remaining line and only wraps on very narrow
+       cards. */
+    flex: 1 1 120px;
+  }
+
+  .settings-row .s-rail {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .settings-row .s-order-controls {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  /* Row mode: back to fixed squares, no vertical stretch. */
+  .settings-row .s-order-controls button {
+    flex: none;
+    width: var(--editor-icon-size);
+    height: var(--editor-icon-size);
+  }
+
+  /* Value line: input + its browse button + delete on one row, the group
+     trigger full-width below. This avoids the old stacked layout where the
+     kind trigger, the value and the group each took a line and one card
+     filled the whole viewport. */
+  .settings-row .s-value-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .settings-row .s-value-field {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .settings-row .s-value-row .s-app-browse,
+  .settings-row .s-value-row .s-file-browse,
+  .settings-row .s-value-row .s-folder-browse {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .settings-row .s-value-row .s-del {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .settings-row .s-group-field {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  /* Narrow: steps keep their one-line mini-row (kind + value share it), the
+     value drops full-width only when the step wraps for its picker. */
+  .settings-row .s-steps {
+    padding: 10px;
+  }
+
+  .settings-row .s-step-value-field {
+    flex: 1 1 120px;
+  }
+
+  .group-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .group-row .group-name-field {
+    grid-column: 1 / -1;
+  }
+
+  .group-row .group-color-field {
+    grid-column: 1;
+  }
+
+  .group-row .g-del {
+    grid-column: 2;
+  }
+}
+
 @media (max-width: 480px) {
   #settings,
   #actions {
     border-radius: 16px;
-  }
-
-  #settings {
-    max-height: 560px;
   }
 
   #settings-header,
@@ -3303,81 +3521,6 @@ label.settings-list-row {
     top: -16px;
     margin: -16px -14px 0;
     padding: 16px 14px 12px;
-  }
-
-  /* Narrow windows: the card stacks into full-width lines, with the type
-     and the per-row actions sharing a line under the name. */
-  .settings-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-  }
-
-  .settings-row-top {
-    flex-wrap: wrap;
-  }
-
-  .settings-row .s-name-field {
-    flex: 1 1 100%;
-  }
-
-  .settings-row .s-rail {
-    flex-direction: row;
-    justify-content: flex-start;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .settings-row .s-order-controls {
-    flex: none;
-    flex-direction: row;
-    align-items: center;
-  }
-
-  /* Row mode: back to fixed squares, no vertical stretch. */
-  .settings-row .s-order-controls button {
-    flex: none;
-    width: var(--editor-icon-size);
-    height: var(--editor-icon-size);
-  }
-
-  .settings-row .s-value-row {
-    flex-wrap: wrap;
-  }
-
-  .settings-row .s-value-field {
-    flex-basis: 100%;
-  }
-
-  .settings-row .s-group-field {
-    flex: 1 1 100%;
-  }
-
-  /* Narrow: steps keep their one-line mini-row (kind + value share it), the
-     value drops full-width only when the step wraps for its picker. */
-  .settings-row .s-steps {
-    padding: 10px;
-  }
-
-  .settings-row .s-step-value-field {
-    flex: 1 1 120px;
-  }
-
-  .group-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .group-row .group-name-field {
-    grid-column: 1 / -1;
-  }
-
-  .group-row .group-color-field {
-    grid-column: 1;
-  }
-
-  .group-row .g-del {
-    grid-column: 2;
   }
 
   #settings-footer,

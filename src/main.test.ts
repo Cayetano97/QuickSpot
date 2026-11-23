@@ -6,7 +6,7 @@
  * requestAnimationFrame loop are stubbed so transitions can be driven
  * deterministically.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLOSE_MS, OPEN_MS } from "./lib/constants";
 import type { Action, Group } from "./lib/model";
 
@@ -149,7 +149,7 @@ function installDom(): void {
         <button id="hub"></button>
         <button id="add"></button>
         <div id="query-wrap"><span id="query-mirror"></span><span id="caret"></span><input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search actions" /></div>
-        <span id="more-count" aria-hidden="true"></span>
+        <span id="more-count" role="status" aria-live="polite" aria-atomic="true"></span>
         <div id="empty-state" role="status" aria-live="polite" aria-atomic="true"></div>
         <div id="run-error" role="alert" aria-live="assertive" aria-hidden="true"></div>
         <button id="minimize"></button>
@@ -647,6 +647,8 @@ describe("execution", () => {
     key(document.querySelector("#query")!, "Enter");
     await flush();
     expect(document.querySelector("#run-error")!.textContent).toBe("Couldn't run: boom");
+    // role=alert is only useful if the caption leaves aria-hidden while shown.
+    expect(document.querySelector("#run-error")!.getAttribute("aria-hidden")).toBe("false");
   });
 });
 
@@ -1142,6 +1144,50 @@ describe("circle size setting", () => {
   });
 });
 
+describe("responsive window fit", () => {
+  const setViewport = (width: number, height: number): void => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+    window.dispatchEvent(new Event("resize"));
+  };
+  const fit = (): string =>
+    document.querySelector<HTMLElement>("#overlay")!.style.getPropertyValue(
+      "--launcher-fit-scale",
+    );
+  const total = (): string =>
+    document.querySelector<HTMLElement>("#overlay")!.style.getPropertyValue(
+      "--launcher-total-scale",
+    );
+
+  afterEach(() => setViewport(1024, 768));
+
+  it("keeps the launcher at native size in the default window", () => {
+    expect(fit()).toBe("1");
+    expect(total()).toBe("1");
+  });
+
+  it("fits the actual 520x580 canvas into a 480x600 window", () => {
+    setViewport(480, 600);
+    // (480 - 16) / 520: the canvas is not scaled against the old 680x740 frame.
+    expect(Number(fit())).toBeCloseTo(464 / 520, 6);
+    expect(Number(total())).toBeCloseTo(464 / 520, 6);
+  });
+
+  it("accounts for the circle zoom so 125% still fits the window", async () => {
+    await mount({ circleSize: 125 });
+    setViewport(480, 600);
+    expect(Number(fit())).toBeCloseTo(464 / 650, 6);
+    // The composite keeps the zoomed canvas inside the window.
+    expect(Number(total())).toBeCloseTo(464 / 520, 6);
+  });
+
+  it("exposes the full action name as a title for clipped chip labels", () => {
+    const chips = [...document.querySelectorAll<HTMLButtonElement>(".chip")];
+    expect(chips[0].title).toBe("Vercel");
+    expect(chips[1].title).toBe("GitHub");
+  });
+});
+
 describe("actions panel", () => {
   it("the add button opens the actions panel with the action rows", async () => {
     await openOverlay();
@@ -1308,6 +1354,9 @@ describe("actions panel", () => {
     expect(document.querySelector<HTMLButtonElement>("#actions-add")).not.toBeNull();
     document.querySelector<HTMLButtonElement>("#actions-add")!.click();
     expect(document.querySelector(".settings-actions-count")!.textContent).toBe("1");
+    expect(
+      document.querySelector(".settings-actions-count")!.getAttribute("aria-label"),
+    ).toBe("1 action");
   });
 
   it("prepends a new empty action at the top of the list", async () => {

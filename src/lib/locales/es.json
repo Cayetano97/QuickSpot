@@ -62,6 +62,7 @@
   "generalLabel": "General",
   "actionsLabel": "Acciones",
   "actionsCount": "{count} acciones",
+  "actionsCountOne": "{count} acción",
   "noActions": "Aún no hay acciones. Usa «Añadir acción» para crear la primera.",
   "groupsLabel": "Grupos",
   "addGroup": "Añadir grupo",
