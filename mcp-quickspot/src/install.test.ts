@@ -201,6 +201,11 @@ describe("client config locations honor env overrides", () => {
 });
 
 describe("install", () => {
+  /** `install` resolves `serverPath`, so the fixture must be absolute on the
+   * host OS: a POSIX literal like "/stable/index.js" turns into
+   * "D:\\stable\\index.js" on Windows (drive of the current cwd). */
+  const serverAt = (home: string) => join(home, "stable", "index.js");
+
   function withHome<T>(fn: (home: string) => T): T {
     const home = mkdtempSync(join(tmpdir(), "qsmcp-install-"));
     const keys = ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "COPILOT_HOME", "XDG_CONFIG_HOME"] as const;
@@ -224,8 +229,9 @@ describe("install", () => {
 
   it("writes a VS Code Copilot entry with type stdio", () => {
     withHome((home) => {
+      const server = serverAt(home);
       const res = install(
-        { clients: ["vscode"], noCopy: true, serverPath: "/stable/index.js", nodePath: "/usr/bin/node" },
+        { clients: ["vscode"], noCopy: true, serverPath: server, nodePath: "/usr/bin/node" },
         "/running/index.js",
       );
       expect(res.clients[0].failed).toBe(false);
@@ -234,18 +240,18 @@ describe("install", () => {
       expect(cfg.mcpServers.quickspot).toEqual({
         type: "stdio",
         command: "/usr/bin/node",
-        args: ["/stable/index.js"],
+        args: [server],
       });
     });
   });
 
   it("updates an existing legacy VS Code mcp.json too", () => {
-    withHome(() => {
+    withHome((home) => {
       const legacy = clientConfigFile("vscode");
       mkdirSync(join(legacy, ".."), { recursive: true });
       writeFileSync(legacy, JSON.stringify({ servers: { other: { command: "x", args: [] } } }));
       install(
-        { clients: ["vscode"], noCopy: true, serverPath: "/stable/index.js", nodePath: "/usr/bin/node" },
+        { clients: ["vscode"], noCopy: true, serverPath: serverAt(home), nodePath: "/usr/bin/node" },
         "/running/index.js",
       );
       const cfg = JSON.parse(readFileSync(legacy, "utf8"));
@@ -260,7 +266,7 @@ describe("install", () => {
       mkdirSync(join(home, ".cursor"), { recursive: true });
       writeFileSync(file, "{ broken");
       const res = install(
-        { clients: ["cursor"], noCopy: true, serverPath: "/stable/index.js", nodePath: "/usr/bin/node" },
+        { clients: ["cursor"], noCopy: true, serverPath: serverAt(home), nodePath: "/usr/bin/node" },
         "/running/index.js",
       );
       expect(res.clients[0].failed).toBe(true);
